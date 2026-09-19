@@ -29,6 +29,12 @@ export type TweetNode = {
   parent_id: string | null;
   edge: EdgeKind;
   generation: number;
+  /** Source post URL for mutation reliability */
+  url?: string;
+  /** Short lineage label on the edge into this node */
+  edge_label?: string;
+  /** Hover detail: shared terms / why this branch split */
+  edge_detail?: string;
   snapshots: Snapshot[];
   children: TweetNode[];
 };

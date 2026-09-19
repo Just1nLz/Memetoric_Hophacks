@@ -310,10 +310,72 @@ code {
   height: 48px;
 }
 
+.canvas-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+  margin: 0 16px;
+}
+
+.zoom-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 8px 4px 10px;
+}
+
+.zoom-bar label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.zoom-bar label span {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.zoom-bar input[type="range"] {
+  width: 140px;
+  accent-color: var(--lime);
+}
+
+.zoom-bar em {
+  font-style: normal;
+  font-family: "IBM Plex Mono", monospace;
+  min-width: 3.2ch;
+  color: var(--ink);
+}
+
+.zoom-bar button {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+
+.zoom-bar button:hover {
+  border-color: rgba(214, 255, 75, 0.55);
+  color: var(--lime);
+}
+
+.zoom-hint {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+}
+
 .canvas {
   position: relative;
-  overflow: auto;
-  margin: 0 16px;
+  overflow: hidden;
+  min-height: 420px;
   border: 1px solid var(--line);
   border-radius: 18px;
   background:
@@ -321,27 +383,93 @@ code {
     linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0 / 236px 100%,
     var(--bg-2);
   box-shadow: var(--shadow);
+  cursor: grab;
+  touch-action: none;
+}
+
+.canvas:active {
+  cursor: grabbing;
+}
+
+.canvas-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
 }
 
 .tree {
   display: block;
-  min-width: 100%;
 }
 
 .link {
   fill: none;
   stroke-width: 1.4;
   opacity: 0.85;
+  pointer-events: none;
 }
 
 .link.mutation {
   stroke-dasharray: 5 5;
 }
 
-.link.off,
+.edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
+  cursor: help;
+}
+
+.link-group.off {
+  opacity: 0.08;
+  pointer-events: none;
+}
+
+.edge-label rect {
+  fill: #1a1c14;
+  stroke: var(--line);
+  stroke-width: 1;
+  opacity: 0.92;
+}
+
+.edge-label text {
+  fill: var(--muted);
+  font-size: 9px;
+  font-family: "IBM Plex Mono", monospace;
+  pointer-events: none;
+}
+
+.edge-label.hot rect {
+  stroke: rgba(214, 255, 75, 0.45);
+}
+
+.edge-label.hot text {
+  fill: var(--ink);
+}
+
 .node.off {
   opacity: 0.08;
   pointer-events: none;
+}
+
+.node-link {
+  pointer-events: auto;
+}
+
+.link-text {
+  fill: var(--lime);
+  font-size: 11px;
+  font-family: "IBM Plex Sans", sans-serif;
+}
+
+.source-row {
+  margin: 0 0 12px;
+}
+
+.source-row a {
+  color: var(--lime);
+  font-size: 0.85rem;
 }
 
 .node .dot {
@@ -395,10 +523,31 @@ code {
   font-size: 0.8rem;
   pointer-events: none;
   box-shadow: var(--shadow);
+  z-index: 3;
+  display: grid;
+  gap: 6px;
 }
 
 .float-card p {
-  margin: 0 0 6px;
+  margin: 0;
+}
+
+.float-card a {
+  pointer-events: auto;
+  color: var(--lime);
+  font-size: 0.78rem;
+  width: fit-content;
+}
+
+.float-card.edge-card .edge-card-title {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+  color: var(--lime);
+}
+
+.hint strong {
+  color: var(--ink);
+  font-weight: 600;
 }
 
 .timeline {

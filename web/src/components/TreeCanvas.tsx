@@ -1,6 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
+} from "react";
 import type { EdgeKind, LaidOut, TweetNode } from "../types";
-import { engagement, layoutForest, radius } from "../layout";
+import { edgeAnnotation, influence, layoutForest, postUrl, radius } from "../layout";
 import { compact } from "../format";
 
 const EDGE_COLOR: Record<EdgeKind, string> = {
@@ -21,6 +28,11 @@ type Props = {
 export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: Props) {
   const wrap = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<string | null>(null);
+  const [hoverEdge, setHoverEdge] = useState<string | null>(null);
+  const [scale, setScale] = useState(0.72);
+  const [pan, setPan] = useState({ x: 24, y: 16 });
+  const drag = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+
   const laid = useMemo(() => layoutForest(forest), [forest]);
   const nodes = [...laid.values()];
   const maxX = nodes.reduce((m, n) => Math.max(m, n.x), 400);
@@ -28,100 +40,233 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
   const width = maxX + 280;
   const height = maxY + 120;
 
-  const links: { from: LaidOut; to: LaidOut }[] = [];
+  const links: { from: LaidOut; to: LaidOut; key: string }[] = [];
   for (const item of nodes) {
     if (!item.node.parent_id) continue;
     const parent = laid.get(item.node.parent_id);
-    if (parent) links.push({ from: parent, to: item });
+    if (parent) links.push({ from: parent, to: item, key: `${parent.node.id}-${item.node.id}` });
   }
 
+  const fitToView = () => {
+    const el = wrap.current;
+    if (!el || nodes.length === 0) return;
+    const pad = 48;
+    const sx = (el.clientWidth - pad) / width;
+    const sy = (el.clientHeight - pad) / height;
+    const next = Math.max(0.28, Math.min(1.15, Math.min(sx, sy)));
+    setScale(next);
+    setPan({
+      x: Math.max(12, (el.clientWidth - width * next) / 2),
+      y: Math.max(12, (el.clientHeight - height * next) / 2),
+    });
+  };
+
   useEffect(() => {
-    const root = forest[0];
-    if (root && wrap.current) {
-      wrap.current.scrollTo({ left: 0, top: Math.max(0, (laid.get(root.id)?.y ?? 0) - 180) });
-    }
-  }, [forest, laid]);
+    // Fit when the meme family changes so large trees stay readable.
+    const id = window.requestAnimationFrame(fitToView);
+    return () => window.cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forest]);
+
+  const onPointerDown = (e: ReactPointerEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as Element;
+    if (target.closest(".node") || target.closest(".edge-hit") || target.closest("a")) return;
+    drag.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e: ReactPointerEvent) => {
+    if (!drag.current) return;
+    setPan({
+      x: drag.current.panX + (e.clientX - drag.current.x),
+      y: drag.current.panY + (e.clientY - drag.current.y),
+    });
+  };
+
+  const onPointerUp = () => {
+    drag.current = null;
+  };
+
+  const onWheel = (e: ReactWheelEvent) => {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.06 : 0.06;
+    setScale((s) => Math.max(0.28, Math.min(1.6, +(s + delta).toFixed(2))));
+  };
+
+  const hoverNode = hover ? laid.get(hover) : null;
+  const activeEdge = hoverEdge ? links.find((l) => l.key === hoverEdge) : null;
 
   return (
-    <div className="canvas" ref={wrap}>
-      <svg width={width} height={height} className="tree">
-        <defs>
-          <filter id="glow">
-            <feGaussianBlur stdDeviation="2.4" result="b" />
-            <feMerge>
-              <feMergeNode in="b" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-        {links.map(({ from, to }) => {
-          const alive = visible.has(to.node.id) && visible.has(from.node.id);
-          const allowed = edgeFilter.has(to.node.edge);
-          const d = cubic(from.x + 18, from.y, to.x - 18, to.y);
-          return (
-            <path
-              key={`${from.node.id}-${to.node.id}`}
-              d={d}
-              className={`link ${to.node.edge} ${alive && allowed ? "on" : "off"}`}
-              stroke={EDGE_COLOR[to.node.edge]}
-            />
-          );
-        })}
-        {nodes.map((item) => {
-          const n = item.node;
-          const alive = visible.has(n.id);
-          const allowed = n.edge === "origin" || edgeFilter.has(n.edge);
-          const r = radius(n);
-          const active = selected === n.id || hover === n.id;
-          const snippet = n.body.replace(/\s+/g, " ").slice(0, 42);
-          return (
-            <g
-              key={n.id}
-              transform={`translate(${item.x},${item.y})`}
-              className={`node ${alive && allowed ? "on" : "off"} ${active ? "active" : ""}`}
-              onMouseEnter={() => setHover(n.id)}
-              onMouseLeave={() => setHover(null)}
-              onClick={() => onSelect(n.id)}
-              style={{ cursor: "pointer" }}
-            >
-              <circle r={r + 6} className="halo" />
-              <circle r={r} className={`dot ${n.edge}`} filter={active ? "url(#glow)" : undefined} />
-              <text x={0} y={r + 14} textAnchor="middle" className="genmark">
-                {n.generation}
-              </text>
-              {active && (
-                <>
-                  <text x={r + 12} y={-8} className="label">
-                    {snippet}
-                    {n.body.length > 42 ? "…" : ""}
-                  </text>
-                  <text x={r + 12} y={10} className="meta">
-                    gen {n.generation} · {n.edge} · {compact(n.like_count)} likes · {n.lang}
-                  </text>
-                </>
-              )}
-            </g>
-          );
-        })}
-      </svg>
-      {nodes.length === 0 && <div className="empty">No lineage in this slice.</div>}
-      <div className="hint">
-        Node size tracks engagement (likes, quotes, views). Branches are replies, quotes, or inferred mutations.
+    <div className="canvas-shell">
+      <div className="zoom-bar" title="Scale the evolution map so large trees stay readable">
+        <label>
+          <span>Zoom</span>
+          <input
+            type="range"
+            min={28}
+            max={160}
+            value={Math.round(scale * 100)}
+            onChange={(e) => setScale(Number(e.target.value) / 100)}
+          />
+          <em>{Math.round(scale * 100)}%</em>
+        </label>
+        <button type="button" onClick={fitToView}>
+          Fit map
+        </button>
+        <button type="button" onClick={() => { setScale(1); setPan({ x: 24, y: 16 }); }}>
+          100%
+        </button>
+        <span className="zoom-hint">Drag to pan · ⌘/Ctrl+scroll to zoom</span>
       </div>
-      {hover && laid.get(hover) && (
+
+      <div
+        className="canvas"
+        ref={wrap}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onWheel={onWheel}
+      >
         <div
-          className="float-card"
+          className="canvas-world"
           style={{
-            left: Math.min(laid.get(hover)!.x + 36, width - 280),
-            top: laid.get(hover)!.y + 28,
+            width: width * scale,
+            height: height * scale,
+            transform: `translate(${pan.x}px, ${pan.y}px)`,
           }}
         >
-          <p>{laid.get(hover)!.node.body}</p>
-          <small>
-            {compact(engagement(laid.get(hover)!.node))} weighted engagement
-          </small>
+          <svg
+            width={width}
+            height={height}
+            className="tree"
+            style={{ transform: `scale(${scale})`, transformOrigin: "0 0" }}
+          >
+            <defs>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="2.4" result="b" />
+                <feMerge>
+                  <feMergeNode in="b" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+            {links.map(({ from, to, key }) => {
+              const alive = visible.has(to.node.id) && visible.has(from.node.id);
+              const allowed = edgeFilter.has(to.node.edge);
+              const show = alive && allowed;
+              const d = cubic(from.x + 18, from.y, to.x - 18, to.y);
+              const mid = midpoint(from.x + 18, from.y, to.x - 18, to.y);
+              const ann = edgeAnnotation(from.node, to.node);
+              const hot = hoverEdge === key || selected === to.node.id;
+              return (
+                <g key={key} className={`link-group ${show ? "on" : "off"}`}>
+                  <path d={d} className={`link ${to.node.edge}`} stroke={EDGE_COLOR[to.node.edge]} />
+                  <path
+                    d={d}
+                    className="edge-hit"
+                    onMouseEnter={() => setHoverEdge(key)}
+                    onMouseLeave={() => setHoverEdge(null)}
+                  />
+                  {show && (
+                    <g transform={`translate(${mid.x},${mid.y})`} className={`edge-label ${hot ? "hot" : ""}`}>
+                      <rect x={-36} y={-8} width={72} height={16} rx={4} />
+                      <text textAnchor="middle" y={3.5}>
+                        {trimLabel(ann.label)}
+                      </text>
+                      <title>{ann.detail || ann.label}</title>
+                    </g>
+                  )}
+                </g>
+              );
+            })}
+            {nodes.map((item) => {
+              const n = item.node;
+              const alive = visible.has(n.id);
+              const allowed = n.edge === "origin" || edgeFilter.has(n.edge);
+              const r = radius(n);
+              const active = selected === n.id || hover === n.id;
+              const snippet = n.body.replace(/\s+/g, " ").slice(0, 42);
+              const href = postUrl(n);
+              return (
+                <g
+                  key={n.id}
+                  transform={`translate(${item.x},${item.y})`}
+                  className={`node ${alive && allowed ? "on" : "off"} ${active ? "active" : ""}`}
+                  onMouseEnter={() => setHover(n.id)}
+                  onMouseLeave={() => setHover(null)}
+                  onClick={() => onSelect(n.id)}
+                  style={{ cursor: "pointer" }}
+                >
+                  <circle r={r + 6} className="halo" />
+                  <circle r={r} className={`dot ${n.edge}`} filter={active ? "url(#glow)" : undefined} />
+                  <text x={0} y={r + 14} textAnchor="middle" className="genmark">
+                    {n.generation}
+                  </text>
+                  {active && (
+                    <>
+                      <text x={r + 12} y={-10} className="label">
+                        {snippet}
+                        {n.body.length > 42 ? "…" : ""}
+                      </text>
+                      <text x={r + 12} y={6} className="meta">
+                        gen {n.generation} · {n.edge} · influence {compact(influence(n))}
+                      </text>
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="node-link"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <text x={r + 12} y={22} className="link-text">
+                          Open source post ↗
+                        </text>
+                      </a>
+                    </>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
         </div>
-      )}
+        {nodes.length === 0 && <div className="empty">No lineage in this slice.</div>}
+        <div className="hint">
+          Node size = <strong>influence</strong> (views/80 + likes + 2×reposts + 3×quotes + replies). Edge
+          labels show why posts connect and what they share.
+        </div>
+        {hoverNode && (
+          <div
+            className="float-card"
+            style={{
+              left: Math.min(pan.x + hoverNode.x * scale + 28, (wrap.current?.clientWidth ?? 400) - 280),
+              top: Math.max(8, pan.y + hoverNode.y * scale + 20),
+            }}
+          >
+            <p>{hoverNode.node.body}</p>
+            <small title="Reach × interaction mix: views/80 + likes + 2×reposts + 3×quotes + replies">
+              Influence {compact(influence(hoverNode.node))} · {hoverNode.node.edge}
+            </small>
+            <a href={postUrl(hoverNode.node)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+              Source post
+            </a>
+          </div>
+        )}
+        {activeEdge && !hoverNode && (
+          <div
+            className="float-card edge-card"
+            style={{
+              left: 24,
+              top: 24,
+            }}
+          >
+            <p className="edge-card-title">{edgeAnnotation(activeEdge.from.node, activeEdge.to.node).label}</p>
+            <small>{edgeAnnotation(activeEdge.from.node, activeEdge.to.node).detail}</small>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -129,4 +274,12 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
 function cubic(x1: number, y1: number, x2: number, y2: number): string {
   const mx = (x1 + x2) / 2;
   return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+}
+
+function midpoint(x1: number, y1: number, x2: number, y2: number) {
+  return { x: (x1 + x2) / 2, y: (y1 + y2) / 2 };
+}
+
+function trimLabel(s: string): string {
+  return s.length > 16 ? `${s.slice(0, 15)}…` : s;
 }

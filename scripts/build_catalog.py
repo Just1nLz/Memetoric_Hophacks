@@ -18,6 +18,7 @@ PARQUET = [
 ]
 OUT = ROOT / "web" / "public" / "catalog.json"
 
+# Keep quality over noise: clear meme families with enough high-like hits in the slice.
 MEMES = [
     {
         "slug": "aura-farming",
@@ -47,17 +48,101 @@ MEMES = [
         "blurb": "Numeric chant colliding with the Labubu toy wave — a 2026 playground cipher.",
         "pattern": r"labubu|six\s*seven|67 labubu|labubu 67",
     },
+    {
+        "slug": "crashout",
+        "name": "Crashout",
+        "query": "crash out / crashout",
+        "blurb": "Public meltdown as a verb — when someone finally loses it on timeline.",
+        "pattern": r"\bcrash\s*out\b|\bcrashout\b|\bcrashing\s*out\b",
+    },
+    {
+        "slug": "we-are-so-back",
+        "name": "We are so back",
+        "query": "we are so back",
+        "blurb": "The rebound catchphrase opposite of 'it's so over' — revival energy as a meme.",
+        "pattern": r"we are so back|we're so back",
+    },
+    {
+        "slug": "npc",
+        "name": "NPC",
+        "query": "npc",
+        "blurb": "Calling people scripted extras — main-character discourse as an insult template.",
+        "pattern": r"\bnpc\b|\bnpcs\b",
+    },
+    {
+        "slug": "italian-brainrot",
+        "name": "Italian brainrot",
+        "query": "tralalero · bombardiro · tung tung",
+        "blurb": "Nonsense animal-sound lore (Tralalero, Bombardiro, Tung Tung) as a 2025–26 export.",
+        "pattern": r"tralalero|bombardiro|tung\s*tung|italian\s*brainrot|ballerina\s*cappuccina",
+    },
+    {
+        "slug": "mogging",
+        "name": "Mogging",
+        "query": "mog / mogging",
+        "blurb": "Looksmax slang for outclassing someone on sight — hierarchy humor from the forums.",
+        "pattern": r"\bmogg(ing|ed|s)?\b|\bmog\b",
+    },
+    {
+        "slug": "delulu",
+        "name": "Delulu",
+        "query": "delulu",
+        "blurb": "Delusional optimism as a compliment — stay delulu, keep the bit alive.",
+        "pattern": r"\bdelulu\b|\bdelusional\b",
+    },
 ]
+
+STOP = {
+    "the", "and", "for", "you", "that", "this", "with", "are", "was", "have",
+    "just", "from", "they", "your", "what", "when", "will", "about", "like",
+    "https", "http", "www", "com", "lol", "its", "not", "but", "all", "can",
+    "she", "him", "her", "his", "our", "out", "who", "how", "why", "any",
+}
 
 
 def tokenize(text: str) -> set[str]:
-    return {t for t in re.findall(r"[a-z0-9']+", text.lower()) if len(t) > 2}
+    return {
+        t
+        for t in re.findall(r"[a-z0-9']+", (text or "").lower())
+        if len(t) > 2 and t not in STOP
+    }
 
 
 def similarity(a: set[str], b: set[str]) -> float:
     if not a or not b:
         return 0.0
     return len(a & b) / math.sqrt(len(a) * len(b))
+
+
+def post_url(tweet_id: str) -> str:
+    return f"https://x.com/i/web/status/{tweet_id}"
+
+
+def annotate_edge(parent: dict, child: dict, sibling_count: int) -> tuple[str, str]:
+    """Short label + detail: why connected, what's shared, why a split."""
+    shared = sorted(parent.get("tokens", set()) & child.get("tokens", set()))
+    unique = sorted(child.get("tokens", set()) - parent.get("tokens", set()))
+    split = f"Split: {sibling_count + 1} branches" if sibling_count > 0 else ""
+
+    edge = child.get("edge")
+    if edge == "reply":
+        label = "reply"
+        detail = " · ".join(x for x in ["Direct reply in thread", split] if x)
+        return label, detail
+    if edge == "quote":
+        label = "quote"
+        keep = f"Keeps {' · '.join(shared[:3])}" if shared else "Quotes parent"
+        detail = " · ".join(x for x in [keep, split] if x)
+        return label, detail
+
+    # mutation / inferred kinship
+    if shared:
+        label = f"same: {' · '.join(shared[:2])}"
+    else:
+        label = "loose kinship"
+    drift = f"new: {' · '.join(unique[:2])}" if unique else "rephrased variant"
+    detail = " · ".join(x for x in [drift, split] if x)
+    return label, detail
 
 
 def fetch_meme_rows(con: duckdb.DuckDBPyConnection, pattern_sql: str, limit: int = 220) -> list[dict]:
@@ -153,6 +238,9 @@ def build_tree(tweets: list[dict], snapshots: dict[str, list[dict]]) -> tuple[li
         t["parent_id"] = None
         t["edge"] = "origin"
         t["generation"] = 0
+        t["url"] = post_url(t["id"])
+        t["edge_label"] = None
+        t["edge_detail"] = None
 
     chronological = sorted(tweets, key=lambda t: t["created_at"] or "")
 
@@ -192,6 +280,17 @@ def build_tree(tweets: list[dict], snapshots: dict[str, list[dict]]) -> tuple[li
         if t["parent_id"]:
             children[t["parent_id"]].append(t["id"])
 
+    # Annotate edges after the full parent map exists (need sibling counts).
+    for t in tweets:
+        pid = t.get("parent_id")
+        if not pid or pid not in by_id:
+            continue
+        parent = by_id[pid]
+        sibs = [c for c in children.get(pid, []) if c != t["id"]]
+        label, detail = annotate_edge(parent, t, len(sibs))
+        t["edge_label"] = label
+        t["edge_detail"] = detail
+
     def walk(nid: str, gen: int) -> None:
         node = by_id[nid]
         node["generation"] = gen
@@ -227,6 +326,9 @@ def build_tree(tweets: list[dict], snapshots: dict[str, list[dict]]) -> tuple[li
             "parent_id": t["parent_id"],
             "edge": t["edge"],
             "generation": t["generation"],
+            "url": t.get("url") or post_url(t["id"]),
+            "edge_label": t.get("edge_label"),
+            "edge_detail": t.get("edge_detail"),
             "snapshots": t["snapshots"],
             "children": [serialize(by_id[cid]) for cid in kids],
         }
@@ -274,6 +376,7 @@ def main() -> None:
     for meme in MEMES:
         print("extracting", meme["slug"], flush=True)
         tweets = fetch_meme_rows(con, meme["pattern"], 160)
+        # Prefer high-like recent hits; keep a usable tree size.
         tweets = sorted(tweets, key=lambda t: t.get("like_count") or 0, reverse=True)[:72]
         ids = [t["id"] for t in tweets]
         snaps = fetch_snapshots(con, ids)
@@ -291,6 +394,7 @@ def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(catalog, indent=2))
     print("wrote", OUT)
+    print("meme_count", len(catalog["memes"]))
 
 
 if __name__ == "__main__":
