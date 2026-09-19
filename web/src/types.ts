@@ -56,8 +56,20 @@ export type Meme = {
     views: number;
     languages: string[];
   };
-  series: { t: string; tweets: number; likes: number; views: number; quotes: number }[];
+  series: DayPoint[];
+  saturation?: { peak: string | null; coverage_end?: string | null; note?: string };
   forest: TweetNode[];
+};
+
+export type DayPoint = {
+  t: string;
+  tweets: number;
+  likes: number;
+  views: number;
+  quotes: number;
+  coverage?: boolean;
+  saturation?: number | null;
+  phase?: string;
 };
 
 export type Catalog = {

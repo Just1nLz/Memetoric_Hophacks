@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { when } from "../format";
 import type { Catalog, TweetNode } from "../types";
+import { bodyMentionsMeme } from "../highlight";
 import { flatten, languageName } from "../layout";
 
 export type SearchHit = {
@@ -27,6 +28,7 @@ export function KeywordSearch({ catalog, query, onQuery, onPick }: Props) {
     const out: SearchHit[] = [];
     for (const m of catalog.memes) {
       for (const node of flatten(m.forest)) {
+        if (!bodyMentionsMeme(node.body, m.name, m.query)) continue;
         if (!node.body.toLowerCase().includes(q)) continue;
         out.push({ memeSlug: m.slug, memeName: m.name, node });
         if (out.length >= 28) return out;

@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { compact, grokBotUrl, grokChatUrl, grokImagineUrl, when } from "../format";
+import { highlightMeme } from "../highlight";
 import { edgeAnnotation, influence, postUrl } from "../layout";
-import type { TweetNode } from "../types";
-import { Spark } from "./Charts";
+import { phaseLabel, saturationCopy, saturationForPost } from "../saturation";
+import type { DayPoint, TweetNode } from "../types";
 
 type Props = {
   node: TweetNode | null;
   parent?: TweetNode | null;
   memeName?: string;
+  terms?: string[];
+  series?: DayPoint[];
+  peakDay?: string | null;
 };
 
 type ChatTurn = { role: "user" | "assistant"; content: string };
@@ -21,10 +25,7 @@ function postContext(memeName: string, node: TweetNode, parent: TweetNode | null
   ];
   if (parent) {
     const ann = edgeAnnotation(parent, node);
-    lines.push(`UI mutation tag: ${ann.label}.`);
-    lines.push(`One-line read: ${ann.detail}`);
-    lines.push(ann.kept);
-    for (const r of ann.reasons) lines.push(`Why “${r.tag}”: ${r.why}`);
+    lines.push(`UI mutation tag: ${ann.label}. ${ann.detail}`);
   }
   return lines.join("\n");
 }
@@ -44,7 +45,7 @@ function defaultAsk(node: TweetNode, parent: TweetNode | null) {
   return "In two short paragraphs: (1) how this post continues the thread, (2) what to watch next if we are tracking its spread on X.";
 }
 
-export function Inspector({ node, parent = null, memeName = "" }: Props) {
+export function Inspector({ node, parent = null, memeName = "", terms = [], series = [], peakDay = null }: Props) {
   const [messages, setMessages] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState("");
   const [grokBusy, setGrokBusy] = useState(false);
@@ -97,7 +98,6 @@ export function Inspector({ node, parent = null, memeName = "" }: Props) {
     ["saves", node.bookmarks_count],
   ] as const;
   const href = postUrl(node);
-  const delta = parent ? edgeAnnotation(parent, node) : null;
   const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? draft;
   const inThread = messages.length > 0;
 
@@ -153,34 +153,7 @@ export function Inspector({ node, parent = null, memeName = "" }: Props) {
     <aside className="inspector">
       <p className="kicker">Observation · gen {node.generation}</p>
       <h2>{node.edge === "origin" ? "Origin tweet" : `${cap(node.edge)} of the line`}</h2>
-      <p className="tweet-body">{node.body}</p>
-      {delta && (
-        <div className="lineage-delta">
-          <p className="kicker tight">Why this mutation</p>
-          <p className="delta-via">{delta.label}</p>
-          <p className="delta-lead">{delta.detail}</p>
-          <p className="delta-kept">{delta.kept}</p>
-          <ol className="delta-reasons">
-            {delta.reasons.map((r) => (
-              <li key={r.tag}>
-                <strong>Why “{r.tag}”</strong>
-                <p>{r.why}</p>
-              </li>
-            ))}
-          </ol>
-          <div className="delta-compare">
-            <div>
-              <span>Previous post</span>
-              <p>{delta.parentExcerpt}</p>
-            </div>
-            <div>
-              <span>This post</span>
-              <p>{delta.childExcerpt}</p>
-            </div>
-          </div>
-          <p className="delta-via-note">{viaLine(node)}</p>
-        </div>
-      )}
+      <p className="tweet-body">{highlightMeme(node.body, terms)}</p>
       <p className="source-row">
         <a href={href} target="_blank" rel="noreferrer">
           Source post on X ↗
@@ -203,10 +176,6 @@ export function Inspector({ node, parent = null, memeName = "" }: Props) {
           <dt>lang</dt>
           <dd>{node.lang}</dd>
         </div>
-        <div>
-          <dt>influence</dt>
-          <dd title="views/80 + likes + 2×reposts + 3×quotes + replies">{compact(influence(node))}</dd>
-        </div>
       </dl>
       <div className="metric-grid">
         {metrics.map(([k, v]) => (
@@ -216,24 +185,32 @@ export function Inspector({ node, parent = null, memeName = "" }: Props) {
           </div>
         ))}
       </div>
-      <p className="kicker tight">Influence trajectory</p>
-      <Spark snapshots={node.snapshots} />
-      <p className="muted tiny">
-        Key is <code>(id, version)</code>. The firehose re-observes the same tweet; the curve is not a new post.{" "}
-        <a href={href} target="_blank" rel="noreferrer">
-          Open source post
-        </a>
-      </p>
+      <div className="influence-note">
+        <p className="kicker tight">Why this node is this size</p>
+        <p>
+          The tree scales a node by <strong>influence</strong> — how hard this post hit, not how many remixes it spawned.
+          Score is likes + replies + 2×reposts + 3×quotes + views÷80. Quotes weigh most because they carry the bit onward.
+        </p>
+        <p className="influence-score">
+          This post: <strong>{compact(influence(node))}</strong>
+          <span>
+            {compact(node.like_count)} likes · {compact(node.reply_count)} replies · {compact(node.retweet_count)}×2
+            reposts · {compact(node.quote_count)}×3 quotes · {compact(node.views_count)}÷80 views
+          </span>
+        </p>
+      </div>
+      {(() => {
+        const sat = saturationForPost(series, node);
+        if (!sat) return null;
+        return (
+          <div className={`influence-note sat-note phase-${sat.phase ?? "unknown"}`}>
+            <p className="kicker tight">Saturation · {phaseLabel(sat.phase)}</p>
+            <p>{saturationCopy(sat, peakDay)}</p>
+          </div>
+        );
+      })()}
 
       <p className="kicker tight">Ask GrokBot</p>
-      <p className="muted tiny">
-        Built-in Grok chat. The selected post and mutation tags are attached. After a reply, type a follow-up about
-        the explanation. Reset or pick another node to start over.
-      </p>
-      <p className="muted tiny grok-attached">
-        Attached · {node.body.replace(/\s+/g, " ").slice(0, 90)}
-        {node.body.length > 90 ? "…" : ""}
-      </p>
 
       {inThread && (
         <div className="grok-thread" ref={threadRef}>
@@ -296,7 +273,7 @@ export function Inspector({ node, parent = null, memeName = "" }: Props) {
           rows={3}
         />
       </label>
-      <button type="button" className="ghost-link" disabled={grokBusy} onClick={() => void imagineApi()}>
+      <button type="button" className="play grok-imagine" disabled={grokBusy} onClick={() => void imagineApi()}>
         GrokImagine
       </button>
       {imagineUrl && <img className="imagine" src={imagineUrl} alt="Grok Imagine still" />}
@@ -308,12 +285,3 @@ function cap(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function viaLine(node: TweetNode): string {
-  if (node.edge === "reply") {
-    return "Link type: reply — a real thread, not just a lookalike.";
-  }
-  if (node.edge === "quote") {
-    return "Link type: quote — the previous post is cited; the new caption is the mutation.";
-  }
-  return "Link type: mutation — inferred kinship (shared meme, later in time), not a reply or quote.";
-}

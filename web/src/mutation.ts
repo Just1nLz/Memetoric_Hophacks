@@ -37,6 +37,11 @@ const LANG_NAME: Record<string, string> = {
   vi: "Vietnamese",
   eu: "Basque",
   ca: "Catalan",
+  tl: "Tagalog",
+  et: "Estonian",
+  ht: "Haitian Creole",
+  ta: "Tamil",
+  fa: "Persian",
   und: "Unknown",
 };
 
@@ -53,12 +58,30 @@ const STOP = new Set([
   "before", "while", "during", "only", "back", "down", "up", "off", "via",
 ]);
 
+const WEAK = new Set([
+  ...STOP,
+  "today", "always", "both", "people", "someone", "everyone", "everything",
+  "killed", "tried", "make", "made", "damn", "works", "screen", "trailer",
+  "city", "farmed", "american", "phrase", "learned", "hard", "type", "shit",
+  "deadass", "post", "tweet", "look", "know", "think", "need", "want",
+  "going", "doing", "done", "time", "wait", "used", "take", "takes",
+  "he's", "shes", "she's", "yesterday", "today", "tomorrow",
+]);
+
+const TAGS = new Set([
+  "translation", "roast", "praise", "fandom", "crossover", "challenge",
+  "sports", "howto", "clip", "format", "nature", "news", "quote", "reply",
+  "politics", "reskin",
+]);
+
 /** Shared meme payload — not a mutation by itself. */
 const CORE = new Set([
   "aura", "farm", "farming", "farmer", "skibidi", "rickroll", "rick", "astley",
   "never", "gonna", "give", "labubu", "crashout", "crash", "npc", "npcs",
   "mog", "mogging", "mogged", "delulu", "delusional", "tralalero", "bombardiro",
-  "tung", "brainrot",
+  "tung", "brainrot", "locked", "ragebait", "ragebaiting", "glaze", "glazing",
+  "glazed", "yapping", "yap", "gooning", "gooner", "rizz", "rizzler", "rizzed",
+  "grass", "cooked", "sigma",
 ]);
 
 type Frame = { tag: string; words: string[]; meaning: string };
@@ -98,20 +121,70 @@ function coreHits(body: string): string[] {
   return [...new Set(raw.filter((t) => CORE.has(t)))];
 }
 
-/** Distinctive subjects: names, franchises, places — not filler. */
-function subjects(body: string): string[] {
-  const caps = (body.match(/\b[A-Z][a-zA-Z]{2,}\b/g) ?? [])
-    .map((s) => s.toLowerCase())
-    .filter((s) => !STOP.has(s) && !CORE.has(s) && s !== "http" && s !== "https");
-  const rest = tokens(body).filter((t) => t.length > 3);
+/** Keep original casing for names like Dr Doom / John Cena. */
+function namedSubjects(body: string): string[] {
+  const phrases = [
+    ...(body.match(/\b(?:Dr|Mr|Ms|DJ)\.?\s+[A-Z][a-zA-Z]+\b/g) ?? []),
+    ...(body.match(/\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+\b/g) ?? []),
+  ];
+  const singles = (body.match(/\b[A-Z][a-zA-Z]{2,}\b/g) ?? []).filter((s) => {
+    const k = s.toLowerCase();
+    return !WEAK.has(k) && !CORE.has(k) && s !== "Http" && s !== "Https";
+  });
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const s of [...caps, ...rest]) {
-    if (seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
+  for (const s of [...phrases, ...singles]) {
+    const k = s.replace(/\s+/g, " ").trim();
+    const key = k.toLowerCase();
+    if (!k || seen.has(key) || WEAK.has(key) || CORE.has(key)) continue;
+    if (/^(he|she|it|they)'s$/i.test(k)) continue;
+    const words = k.split(/\s+/);
+    if (words.every((w) => CORE.has(w.toLowerCase()) || WEAK.has(w.toLowerCase()))) continue;
+    if (words.some((w) => CORE.has(w.toLowerCase()))) continue;
+    seen.add(key);
+    out.push(k);
   }
   return out;
+}
+
+function displayName(s: string): string {
+  if (/[A-Z]/.test(s.slice(1)) || /\s/.test(s)) return s;
+  return pretty(s);
+}
+
+function gist(body: string): string | null {
+  const named = namedSubjects(body)[0];
+  if (named) return displayName(named);
+  const tok = tokens(body).find((t) => !WEAK.has(t) && t.length > 3);
+  return tok ? pretty(tok) : null;
+}
+
+function memePhrase(parent: TweetNode, child: TweetNode): string {
+  const cores = [...new Set([...coreHits(child.body), ...coreHits(parent.body)])];
+  if (cores.includes("aura") || cores.some((c) => c.startsWith("farm"))) return "aura farming";
+  if (cores.includes("rickroll") || cores.includes("rick")) return "rickroll";
+  if (cores.includes("skibidi")) return "skibidi";
+  if (cores.includes("labubu")) return "labubu";
+  if (cores.includes("crashout") || cores.includes("crash")) return "crashout";
+  if (cores.includes("npc") || cores.includes("npcs")) return "NPC";
+  if (cores.includes("mog") || cores.includes("mogging") || cores.includes("mogged")) return "mogging";
+  if (cores.includes("delulu") || cores.includes("delusional")) return "delulu";
+  if (cores.some((c) => c === "tralalero" || c === "bombardiro" || c === "tung")) return "Italian brainrot";
+  if (cores.includes("locked")) return "locked in";
+  if (cores.includes("ragebait") || cores.includes("ragebaiting")) return "ragebait";
+  if (cores.some((c) => c.startsWith("glaz"))) return "glazing";
+  if (cores.includes("yapping") || cores.includes("yap")) return "yapping";
+  if (cores.includes("gooning") || cores.includes("gooner")) return "gooning";
+  if (cores.includes("rizz") || cores.includes("rizzler") || cores.includes("rizzed")) return "rizz";
+  if (cores.includes("grass")) return "touch grass";
+  if (cores.includes("cooked")) return "we're cooked";
+  if (cores.includes("sigma")) return "sigma";
+  const both = `${parent.body} ${child.body}`.toLowerCase();
+  if (both.includes("so over")) return "it's so over";
+  if (both.includes("let him cook") || both.includes("let her cook") || both.includes("let them cook")) {
+    return "let him cook";
+  }
+  return cores[0] ? pretty(cores[0]) : "the meme";
 }
 
 function pretty(s: string): string {
@@ -147,86 +220,83 @@ function keptWhy(parent: TweetNode, child: TweetNode): string {
   return "The later post still belongs to the same meme family, even if the exact catchphrase is rewritten. The annotation names the twist, not the shared joke.";
 }
 
-function reasonForTag(
-  tag: string,
+/** One sentence: how the last post became this one. */
+function pairWhy(
+  a: string,
+  b: string | undefined,
   parent: TweetNode,
   child: TweetNode,
   subject: string | null,
   newFrames: { tag: string; words: string[]; meaning: string }[],
 ): string {
-  const who = subject ? pretty(subject) : null;
-  const frame = newFrames.find((f) => f.tag === tag);
-  const evidence = frame?.words.slice(0, 3).join(", ");
+  const meme = memePhrase(parent, child);
+  const from = gist(parent.body);
+  const onto =
+    subject && !TAGS.has(subject.toLowerCase())
+      ? displayName(subject)
+      : namedSubjects(child.body)[0] ?? (b && !TAGS.has(b.toLowerCase()) ? displayName(b) : null);
+  const evidence = newFrames[0]?.words[0];
+  const left = a.toLowerCase();
 
-  switch (tag) {
-    case "translation":
-      return `The last post is in ${languageName(parent.lang)}; this one is in ${languageName(child.lang)}. Same meme, new language — that is a transmission mutation, not a new joke.`;
-    case "fandom":
-    case "crossover":
-      return who
-        ? `The last post did not center on ${who}. This one recasts the meme onto ${who} — a new performer of the same bit. That is why the chip reads as fandom / crossover instead of listing random leftover words.`
-        : "This post attaches the meme to a celebrity, character, or franchise that the previous post did not use.";
-    case "challenge":
-      return evidence
-        ? `The previous post was a scene. This one turns the meme into a contest (it introduces “${evidence}”) — who can perform it harder.`
-        : "This post frames the meme as a competition rather than a single pose.";
-    case "sports":
-      return evidence
-        ? `Sports / arena language (“${evidence}”) shows up here and not in the last post. The mutation is applying the pose to an athletic moment.`
-        : "The meme is now being used to describe a sports moment.";
-    case "nature":
-      return "The last post was about people. This one projects the same pose onto animals or nature — the subject mutated, the joke did not.";
-    case "howto":
-      return evidence
-        ? `The voice shifted to advice (“${evidence}”). The last post showed the meme; this one tells you how to keep or do it.`
-        : "The post turned the meme into a tip or how-to.";
-    case "news":
-      return "This caption uses the meme to narrate a news, scandal, or broadcast clip — a journalistic wrapper the previous post did not have.";
-    case "format":
-      return "The later post uses a 'when X…' setup. That is a template mutation: same punchline, new situational wrapper.";
-    case "clip":
-      return evidence
-        ? `A media wrapper appears here (“${evidence}”) that was not the point of the last post. The caption stays the meme; the clip is the new vehicle.`
-        : "A new clip or video is doing the carrying; the text is just the meme tag.";
-    case "quote":
-      return "Because this is a quote-tweet, the mutation is the added commentary sitting on top of the previous post.";
-    case "reply":
-      return "Because this is a reply, the mutation is the new speaker’s take inside the same thread.";
-    case "roast":
-      return evidence
-        ? `The stance flipped to mockery (“${evidence}”). The last post presented the meme; this one dunks on whoever is performing it.`
-        : "The mutation is tone: this post roasts the performance instead of celebrating it.";
-    case "praise":
-      return "The stance is admiration. The mutation is treating the pose as peak execution of the meme.";
-    case "anime":
-      return "The meme jumped into anime / idol fandom — a scene swap, not a new catchphrase.";
-    case "politics":
-      return "The meme was recast onto a political figure or campaign moment.";
-    case "reskin":
-      return "No big frame change (language, contest, fandom) stood out. The later post is a reskin: same joke, different wrapper or wording.";
-    default:
-      return who
-        ? `“${pretty(tag)}” marks a new subject (${who}) that the previous post did not use.`
-        : `“${pretty(tag)}” is the shortest label for how this post twists the previous one.`;
+  if (left === "translation") {
+    return `The last post kept ${meme} in ${languageName(parent.lang)}; this one says it in ${languageName(child.lang)}.`;
   }
-}
-
-function sentence(tags: string[], subject: string | null, child: TweetNode): string {
-  const who = subject ? pretty(subject) : null;
-  if (tags.includes("translation")) {
-    return who
-      ? `The joke crossed into ${languageName(child.lang)} and recast onto ${who}.`
-      : `The joke crossed into ${languageName(child.lang)} — same meme, new scene.`;
+  if (left === "roast") {
+    return from && onto
+      ? `The last post played ${meme} straight with ${from}; this one roasts ${onto} for the same pose.`
+      : `The last post presented ${meme}; this one dunks on ${onto ?? "the performer"} instead.`;
   }
-  if (tags.includes("challenge")) return "The meme became a contest: who can perform it harder.";
-  if (tags.includes("sports")) {
-    return who ? `The pose was applied to a sports moment (${who}).` : "The pose was applied to a sports moment.";
+  if (left === "praise") {
+    return onto
+      ? `The last post ${from ? `was about ${from}` : `showed ${meme}`}; this one hypes ${onto} as peak execution.`
+      : `The last post showed ${meme}; this one turns the same pose into praise.`;
   }
-  if (tags.includes("crossover") || tags.includes("fandom")) {
-    return who ? `Same meme, new subject: ${who}.` : "The meme was recast onto another celebrity or franchise.";
+  if (left === "fandom" || left === "crossover") {
+    if (from && onto && from.toLowerCase() !== onto.toLowerCase()) {
+      return `The last post put ${meme} on ${from}; this one moves the same pose onto ${onto}.`;
+    }
+    if (onto) {
+      return `The last post had no named face; this one puts ${meme} on ${onto}.`;
+    }
+    return `The last post ${from ? `centered ${from}` : `used ${meme}`}; this one recasts it into another fandom.`;
   }
-  if (who) return `Same meme, new subject: ${who}.`;
-  return "A reskin of the previous post — same joke, different wrapper.";
+  if (left === "challenge") {
+    return onto
+      ? `The last post showed ${from ?? meme}; this one turns it into a contest starring ${onto}.`
+      : `The last post showed ${from ?? meme}; this one makes it a who-does-it-better contest.`;
+  }
+  if (left === "sports") {
+    const sport = onto ?? (evidence ? pretty(evidence) : null);
+    return from
+      ? `The last post was about ${from}; this one applies ${meme} to ${sport ?? "an athletic beat"}.`
+      : `The last post was a pose take; this one applies ${meme} to ${sport ?? "a sports moment"}.`;
+  }
+  if (left === "howto") {
+    return `The last post showed ${from ?? meme}; this one tells you how to keep doing it${onto ? ` like ${onto}` : ""}.`;
+  }
+  if (left === "clip") {
+    return `The last post was ${from ? `about ${from}` : "text-first"}; this one carries ${meme} with ${evidence ? `a ${evidence}` : "a clip"}${onto ? ` of ${onto}` : ""}.`;
+  }
+  if (left === "format") {
+    return `The last post stated ${meme} outright${from ? ` via ${from}` : ""}; this one drops it into a “when ${onto ?? "X"}…” setup.`;
+  }
+  if (left === "nature") {
+    return `The last post used ${from ?? "people"}; this one projects ${meme} onto ${onto ?? evidence ?? "a non-human performer"}.`;
+  }
+  if (left === "news") {
+    return `The last post was a casual ${meme} take${from ? ` about ${from}` : ""}; this one uses it to narrate ${onto ?? "a news beat"}.`;
+  }
+  if (left === "quote" || left === "reply") {
+    return `This ${left} keeps ${meme} and adds ${onto ?? "a new take"} on top of ${from ?? "the last post"}.`;
+  }
+  const landing = onto ?? gist(child.body);
+  if (from && landing && from.toLowerCase() !== landing.toLowerCase()) {
+    return `The last post centered ${from}; this one moves ${meme} onto ${landing}.`;
+  }
+  if (landing) {
+    return `This post keeps ${meme} but aims it at ${landing}, which the last post did not use.`;
+  }
+  return `This post keeps ${meme} and changes the wrapper from ${from ?? "the last take"} to ${pretty(left)}.`;
 }
 
 /** 1–2 keywords plus a click-through explanation of why they mark this mutation. */
@@ -242,13 +312,17 @@ export function edgeAnnotation(parent: TweetNode, child: TweetNode): EdgeAnnotat
   const newFrames = frameHits(child.body).filter((f) => !parentFrameTags.has(f.tag));
   for (const f of newFrames) tags.push(f.tag);
 
-  const parentSubs = new Set(subjects(parent.body));
-  const newSubs = subjects(child.body).filter((s) => !parentSubs.has(s));
-  const subject = newSubs[0] ?? null;
+  const parentNames = new Set(namedSubjects(parent.body).map((s) => s.toLowerCase()));
+  const newNames = namedSubjects(child.body).filter((s) => !parentNames.has(s.toLowerCase()));
+  const subject = newNames[0] ?? null;
 
-  const childLooksNamed = Boolean(subject && /^[a-z]/.test(subject) && subject.length > 3);
-  if (childLooksNamed && !tags.includes("translation") && !tags.includes("challenge")) {
-    tags.push(subject && FRAMES.some((f) => f.tag === "anime" && f.words.includes(subject)) ? "crossover" : "fandom");
+  if (
+    subject &&
+    !tags.includes("translation") &&
+    !tags.includes("challenge") &&
+    !subject.split(/\s+/).every((w) => CORE.has(w.toLowerCase()))
+  ) {
+    tags.push(FRAMES.some((f) => f.tag === "anime" && f.words.includes(subject.toLowerCase())) ? "crossover" : "fandom");
   }
 
   const unique = [...new Set(tags)];
@@ -261,37 +335,20 @@ export function edgeAnnotation(parent: TweetNode, child: TweetNode): EdgeAnnotat
       labelParts.push(t);
     }
     if (labelParts.length < 2 && subject && !labelParts.includes(subject)) {
-      labelParts.push(pretty(subject));
+      labelParts.push(displayName(subject));
     }
   }
   if (labelParts.length === 0) labelParts.push(via === "quote" ? "quote" : via === "reply" ? "reply" : "reskin");
 
   const shown = labelParts.slice(0, 2);
-  const reasons: MutationReason[] = [];
-  const seen = new Set<string>();
-  for (const tag of [...shown, ...unique, via === "mutation" ? "reskin" : via]) {
-    const key = tag.toLowerCase();
-    if (seen.has(key)) continue;
-    if (reasons.length >= 4) break;
-    // Skip language-name second chip; it is explained under translation.
-    if (unique.includes("translation") && tag === languageName(child.lang)) continue;
-    if (tag === "reskin" && unique.length > 0) continue;
-    seen.add(key);
-    reasons.push({
-      tag,
-      why: reasonForTag(key, parent, child, subject, newFrames),
-    });
-  }
-  if (reasons.length === 0) {
-    reasons.push({ tag: shown[0] ?? "reskin", why: reasonForTag("reskin", parent, child, subject, newFrames) });
-  }
+  const detail = pairWhy(shown[0], shown[1], parent, child, subject, newFrames);
 
   return {
     label: shown.join(" · "),
-    detail: sentence(unique, subject, child),
+    detail,
     via,
     tags: unique,
-    reasons,
+    reasons: [{ tag: shown.join(" · "), why: detail }],
     kept: keptWhy(parent, child),
     parentExcerpt: excerpt(parent.body),
     childExcerpt: excerpt(child.body),
