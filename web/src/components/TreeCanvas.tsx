@@ -25,6 +25,9 @@ type Props = {
   edgeFilter: Set<EdgeKind>;
 };
 
+const SCALE_MIN = 0.28;
+const SCALE_MAX = 1.6;
+
 export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: Props) {
   const wrap = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<string | null>(null);
@@ -32,6 +35,8 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
   const [scale, setScale] = useState(0.72);
   const [pan, setPan] = useState({ x: 24, y: 16 });
   const drag = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const view = useRef({ scale: 0.72, pan: { x: 24, y: 16 } });
+  const pointer = useRef<{ x: number; y: number; over: boolean }>({ x: 0, y: 0, over: false });
 
   const laid = useMemo(() => layoutForest(forest), [forest]);
   const nodes = [...laid.values()];
@@ -47,15 +52,51 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
     if (parent) links.push({ from: parent, to: item, key: `${parent.node.id}-${item.node.id}` });
   }
 
+  const applyView = (nextScale: number, nextPan: { x: number; y: number }) => {
+    view.current = { scale: nextScale, pan: nextPan };
+    setScale(nextScale);
+    setPan(nextPan);
+  };
+
+  /** Keep the world point under (anchorX, anchorY) fixed on screen while changing scale. */
+  const zoomAt = (nextScaleRaw: number, anchorX: number, anchorY: number) => {
+    const nextScale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, +nextScaleRaw.toFixed(2)));
+    const { scale: prevScale, pan: prevPan } = view.current;
+    if (nextScale === prevScale) return;
+    const worldX = (anchorX - prevPan.x) / prevScale;
+    const worldY = (anchorY - prevPan.y) / prevScale;
+    applyView(nextScale, {
+      x: anchorX - worldX * nextScale,
+      y: anchorY - worldY * nextScale,
+    });
+  };
+
+  const anchorForSlider = () => {
+    const el = wrap.current;
+    if (!el) return { x: 0, y: 0 };
+    if (pointer.current.over) return { x: pointer.current.x, y: pointer.current.y };
+    return { x: el.clientWidth / 2, y: el.clientHeight / 2 };
+  };
+
+  const trackPointer = (clientX: number, clientY: number, over: boolean) => {
+    const el = wrap.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    pointer.current = {
+      x: clientX - rect.left,
+      y: clientY - rect.top,
+      over,
+    };
+  };
+
   const fitToView = () => {
     const el = wrap.current;
     if (!el || nodes.length === 0) return;
     const pad = 48;
     const sx = (el.clientWidth - pad) / width;
     const sy = (el.clientHeight - pad) / height;
-    const next = Math.max(0.28, Math.min(1.15, Math.min(sx, sy)));
-    setScale(next);
-    setPan({
+    const next = Math.max(SCALE_MIN, Math.min(1.15, Math.min(sx, sy)));
+    applyView(next, {
       x: Math.max(12, (el.clientWidth - width * next) / 2),
       y: Math.max(12, (el.clientHeight - height * next) / 2),
     });
@@ -70,29 +111,45 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
 
   const onPointerDown = (e: ReactPointerEvent) => {
     if (e.button !== 0) return;
+    trackPointer(e.clientX, e.clientY, true);
     const target = e.target as Element;
     if (target.closest(".node") || target.closest(".edge-hit") || target.closest("a")) return;
-    drag.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+    drag.current = { x: e.clientX, y: e.clientY, panX: view.current.pan.x, panY: view.current.pan.y };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
   const onPointerMove = (e: ReactPointerEvent) => {
+    trackPointer(e.clientX, e.clientY, true);
     if (!drag.current) return;
-    setPan({
+    const nextPan = {
       x: drag.current.panX + (e.clientX - drag.current.x),
       y: drag.current.panY + (e.clientY - drag.current.y),
-    });
+    };
+    view.current = { ...view.current, pan: nextPan };
+    setPan(nextPan);
   };
 
   const onPointerUp = () => {
     drag.current = null;
   };
 
+  const onPointerLeave = () => {
+    pointer.current = { ...pointer.current, over: false };
+  };
+
   const onWheel = (e: ReactWheelEvent) => {
     if (!(e.metaKey || e.ctrlKey)) return;
     e.preventDefault();
+    const el = wrap.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
     const delta = e.deltaY > 0 ? -0.06 : 0.06;
-    setScale((s) => Math.max(0.28, Math.min(1.6, +(s + delta).toFixed(2))));
+    zoomAt(view.current.scale + delta, e.clientX - rect.left, e.clientY - rect.top);
+  };
+
+  const onSliderZoom = (pct: number) => {
+    const anchor = anchorForSlider();
+    zoomAt(pct / 100, anchor.x, anchor.y);
   };
 
   const hoverNode = hover ? laid.get(hover) : null;
@@ -108,17 +165,17 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
             min={28}
             max={160}
             value={Math.round(scale * 100)}
-            onChange={(e) => setScale(Number(e.target.value) / 100)}
+            onChange={(e) => onSliderZoom(Number(e.target.value))}
           />
           <em>{Math.round(scale * 100)}%</em>
         </label>
         <button type="button" onClick={fitToView}>
           Fit map
         </button>
-        <button type="button" onClick={() => { setScale(1); setPan({ x: 24, y: 16 }); }}>
+        <button type="button" onClick={() => applyView(1, { x: 24, y: 16 })}>
           100%
         </button>
-        <span className="zoom-hint">Drag to pan · ⌘/Ctrl+scroll to zoom</span>
+        <span className="zoom-hint">Drag to pan · ⌘/Ctrl+scroll to zoom toward cursor</span>
       </div>
 
       <div
@@ -128,6 +185,8 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onPointerEnter={(e) => trackPointer(e.clientX, e.clientY, true)}
+        onPointerLeave={onPointerLeave}
         onWheel={onWheel}
       >
         <div
