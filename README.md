@@ -11,4 +11,4 @@ cd web && npm install && npm run dev
 
 Open http://localhost:5173/
 
-Optional API: `uvicorn backend.app:app --reload --app-dir .` (serves `/api/catalog`).
+Optional API (GrokBot chat): `XAI_API_KEY=… uvicorn backend.app:app --reload --app-dir . --port 8002` (serves `/api/catalog` and `/api/grok/explain`).

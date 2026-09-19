@@ -1,4 +1,8 @@
+import { languageKey, languageName } from "./mutation";
 import type { LaidOut, TweetNode } from "./types";
+
+export { edgeAnnotation, languageKey, languageName } from "./mutation";
+export type { EdgeAnnotation } from "./mutation";
 
 export function flatten(forest: TweetNode[]): TweetNode[] {
   const out: TweetNode[] = [];
@@ -12,20 +16,20 @@ export function flatten(forest: TweetNode[]): TweetNode[] {
 
 export function layoutForest(forest: TweetNode[]): Map<string, LaidOut> {
   const positions = new Map<string, LaidOut>();
-  const dx = 248;
-  const dy = 108;
-  let y = 40;
+  const dx = 300;
+  const dy = 132;
+  let y = 56;
 
   const layout = (node: TweetNode, depth: number): number => {
     if (node.children.length === 0) {
       const yy = y;
       y += dy;
-      positions.set(node.id, { x: 120 + depth * dx, y: yy, node });
+      positions.set(node.id, { x: 150 + depth * dx, y: yy, node });
       return yy;
     }
     const ys = node.children.map((c) => layout(c, depth + 1));
     const yy = (Math.min(...ys) + Math.max(...ys)) / 2;
-    positions.set(node.id, { x: 120 + depth * dx, y: yy, node });
+    positions.set(node.id, { x: 150 + depth * dx, y: yy, node });
     return yy;
   };
 
@@ -52,69 +56,104 @@ export function influence(node: TweetNode): number {
 export const engagement = influence;
 
 export function radius(node: TweetNode): number {
-  return Math.max(8, Math.min(28, 7 + Math.log10(1 + influence(node)) * 5.4));
+  return Math.max(12, Math.min(36, 10 + Math.log10(1 + influence(node)) * 6.2));
 }
 
-const STOP = new Set([
-  "the", "and", "for", "you", "that", "this", "with", "are", "was", "have",
-  "just", "from", "they", "your", "what", "when", "will", "about", "like",
-  "https", "http", "www", "com", "lol", "its", "not", "but", "all", "can",
-]);
-
-function tokens(body: string): string[] {
-  return (body.toLowerCase().match(/[a-z0-9']+/g) ?? []).filter(
-    (t) => t.length > 2 && !STOP.has(t),
-  );
+function cloneNode(node: TweetNode): TweetNode {
+  return { ...node, children: node.children.map(cloneNode) };
 }
 
-export type EdgeAnnotation = {
-  label: string;
-  detail: string;
+function subtreeSize(node: TweetNode): number {
+  return 1 + node.children.reduce((sum, child) => sum + subtreeSize(child), 0);
+}
+
+function retagGenerations(node: TweetNode, generation: number): void {
+  node.generation = generation;
+  for (const child of node.children) retagGenerations(child, generation + 1);
+}
+
+export type LangTree = {
+  key: string;
+  name: string;
+  count: number;
+  likes: number;
+  forest: TweetNode[];
 };
 
-/** Concise lineage labels: why connected, what’s shared, why a branch splits. */
-export function edgeAnnotation(parent: TweetNode, child: TweetNode): EdgeAnnotation {
-  if (child.edge_label) {
-    return {
-      label: child.edge_label,
-      detail: child.edge_detail ?? "",
-    };
+/** One concise tree per language: same-language edges stay; cross-language links become new roots. */
+export function treesByLanguage(forest: TweetNode[]): LangTree[] {
+  const nodes = flatten(forest);
+  const langs = [...new Set(nodes.map((n) => languageKey(n.lang)))];
+  const trees: LangTree[] = [];
+
+  for (const key of langs) {
+    const keep = new Set(nodes.filter((n) => languageKey(n.lang) === key).map((n) => n.id));
+    if (keep.size === 0) continue;
+    const clones = new Map<string, TweetNode>();
+    for (const n of nodes) {
+      if (!keep.has(n.id)) continue;
+      clones.set(n.id, { ...n, children: [], parent_id: null, edge: "origin", generation: 0 });
+    }
+    for (const n of nodes) {
+      if (!keep.has(n.id)) continue;
+      const node = clones.get(n.id)!;
+      if (n.parent_id && keep.has(n.parent_id)) {
+        const parent = clones.get(n.parent_id)!;
+        node.parent_id = parent.id;
+        node.edge = n.edge === "origin" ? "mutation" : n.edge;
+        parent.children.push(node);
+      }
+    }
+    const roots = [...clones.values()].filter((n) => !n.parent_id);
+    const unified = unifyForest(roots);
+    trees.push({
+      key,
+      name: languageName(key),
+      count: keep.size,
+      likes: [...clones.values()].reduce((s, n) => s + (n.like_count || 0), 0),
+      forest: unified,
+    });
   }
 
-  const shared = tokens(parent.body).filter((t) => tokens(child.body).includes(t));
-  const unique = tokens(child.body).filter((t) => !tokens(parent.body).includes(t));
-  const siblings = parent.children.filter((c) => c.id !== child.id);
-  const splitHint =
-    siblings.length > 0
-      ? `Split under gen ${parent.generation}: ${siblings.length + 1} branches`
-      : "";
+  return trees.sort((a, b) => b.count - a.count || b.likes - a.likes);
+}
 
-  if (child.edge === "reply") {
-    return {
-      label: "reply",
-      detail: ["Direct reply in the thread", splitHint].filter(Boolean).join(" · "),
-    };
-  }
-  if (child.edge === "quote") {
-    return {
-      label: "quote",
-      detail: [
-        shared.length ? `Keeps ${shared.slice(0, 3).join(" · ")}` : "Quotes the parent",
-        splitHint,
-      ]
-        .filter(Boolean)
-        .join(" · "),
-    };
+/**
+ * Collapse disconnected roots into one primary origin so the map reads as a single family.
+ * The strongest tree (descendants × influence) stays origin; other seeds hang off it as mutations.
+ */
+export function unifyForest(forest: TweetNode[]): TweetNode[] {
+  if (forest.length === 0) return [];
+  if (forest.length === 1) {
+    const only = cloneNode(forest[0]);
+    only.edge = "origin";
+    only.parent_id = null;
+    retagGenerations(only, 0);
+    return [only];
   }
 
-  const shareLabel = shared.length
-    ? `same: ${shared.slice(0, 2).join(" · ")}`
-    : "loose kinship";
-  const drift = unique.length ? `new: ${unique.slice(0, 2).join(" · ")}` : "rephrased";
-  return {
-    label: shareLabel,
-    detail: [drift, splitHint].filter(Boolean).join(" · "),
-  };
+  const ranked = forest
+    .map((root) => ({
+      root,
+      score: subtreeSize(root) * 1_000 + influence(root),
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  const origin = cloneNode(ranked[0].root);
+  origin.edge = "origin";
+  origin.parent_id = null;
+
+  for (const extra of ranked.slice(1)) {
+    const branch = cloneNode(extra.root);
+    branch.parent_id = origin.id;
+    branch.edge = "mutation";
+    branch.edge_label = "+side lineage";
+    branch.edge_detail = "Separate seed folded under the primary origin (highest-influence tree).";
+    origin.children.push(branch);
+  }
+
+  retagGenerations(origin, 0);
+  return [origin];
 }
 
 export function postUrl(node: TweetNode): string {

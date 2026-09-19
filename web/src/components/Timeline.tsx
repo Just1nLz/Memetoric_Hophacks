@@ -10,6 +10,7 @@ export function Timeline({ stamps, index, playing, onIndex, onToggle }: Props) {
   const t = stamps[index];
   const label = t
     ? new Date(t).toLocaleString(undefined, {
+        timeZone: "UTC",
         month: "short",
         day: "numeric",
         hour: "2-digit",
@@ -34,7 +35,7 @@ export function Timeline({ stamps, index, playing, onIndex, onToggle }: Props) {
         <div className="fill" style={{ width: `${pct}%` }} />
       </div>
       <div className="time-readout">
-        <span className="kicker">Timestep</span>
+        <span className="kicker">Timestep (UTC)</span>
         <strong>
           {index + 1} / {stamps.length} · {label}
         </strong>

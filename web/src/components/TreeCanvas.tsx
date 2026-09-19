@@ -25,8 +25,8 @@ type Props = {
   edgeFilter: Set<EdgeKind>;
 };
 
-const SCALE_MIN = 0.28;
-const SCALE_MAX = 1.6;
+const SCALE_MIN = 0.4;
+const SCALE_MAX = 2.2;
 
 export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: Props) {
   const wrap = useRef<HTMLDivElement>(null);
@@ -102,9 +102,19 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
     });
   };
 
+  const focusOrigin = () => {
+    const el = wrap.current;
+    const origin = nodes.find((n) => n.node.edge === "origin") ?? nodes[0];
+    if (!el || !origin) return;
+    const next = 1;
+    applyView(next, {
+      x: el.clientWidth * 0.2 - origin.x * next,
+      y: el.clientHeight * 0.42 - origin.y * next,
+    });
+  };
+
   useEffect(() => {
-    // Fit when the meme family changes so large trees stay readable.
-    const id = window.requestAnimationFrame(fitToView);
+    const id = window.requestAnimationFrame(focusOrigin);
     return () => window.cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [forest]);
@@ -113,7 +123,14 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
     if (e.button !== 0) return;
     trackPointer(e.clientX, e.clientY, true);
     const target = e.target as Element;
-    if (target.closest(".node") || target.closest(".edge-hit") || target.closest("a")) return;
+    if (
+      target.closest(".node") ||
+      target.closest(".edge-hit") ||
+      target.closest(".edge-label") ||
+      target.closest("a")
+    ) {
+      return;
+    }
     drag.current = { x: e.clientX, y: e.clientY, panX: view.current.pan.x, panY: view.current.pan.y };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
@@ -162,13 +179,16 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
           <span>Zoom</span>
           <input
             type="range"
-            min={28}
-            max={160}
+            min={40}
+            max={220}
             value={Math.round(scale * 100)}
             onChange={(e) => onSliderZoom(Number(e.target.value))}
           />
           <em>{Math.round(scale * 100)}%</em>
         </label>
+        <button type="button" onClick={focusOrigin}>
+          Focus origin
+        </button>
         <button type="button" onClick={fitToView}>
           Fit map
         </button>
@@ -216,8 +236,8 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
               const alive = visible.has(to.node.id) && visible.has(from.node.id);
               const allowed = edgeFilter.has(to.node.edge);
               const show = alive && allowed;
-              const d = cubic(from.x + 18, from.y, to.x - 18, to.y);
-              const mid = midpoint(from.x + 18, from.y, to.x - 18, to.y);
+              const d = cubic(from.x + 22, from.y, to.x - 22, to.y);
+              const mid = midpoint(from.x + 22, from.y, to.x - 22, to.y);
               const ann = edgeAnnotation(from.node, to.node);
               const hot = hoverEdge === key || selected === to.node.id;
               return (
@@ -228,14 +248,26 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
                     className="edge-hit"
                     onMouseEnter={() => setHoverEdge(key)}
                     onMouseLeave={() => setHoverEdge(null)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelect(to.node.id);
+                    }}
                   />
                   {show && (
-                    <g transform={`translate(${mid.x},${mid.y})`} className={`edge-label ${hot ? "hot" : ""}`}>
-                      <rect x={-36} y={-8} width={72} height={16} rx={4} />
-                      <text textAnchor="middle" y={3.5}>
+                    <g
+                      transform={`translate(${mid.x},${mid.y})`}
+                      className={`edge-label ${hot ? "hot" : ""}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelect(to.node.id);
+                      }}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <rect x={-56} y={-11} width={112} height={22} rx={6} />
+                      <text textAnchor="middle" y={5}>
                         {trimLabel(ann.label)}
                       </text>
-                      <title>{ann.detail || ann.label}</title>
+                      <title>Click to explain: {ann.detail}</title>
                     </g>
                   )}
                 </g>
@@ -259,18 +291,23 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
                   onClick={() => onSelect(n.id)}
                   style={{ cursor: "pointer" }}
                 >
-                  <circle r={r + 6} className="halo" />
+                  <circle r={r + 8} className="halo" />
                   <circle r={r} className={`dot ${n.edge}`} filter={active ? "url(#glow)" : undefined} />
-                  <text x={0} y={r + 14} textAnchor="middle" className="genmark">
-                    {n.generation}
+                  {n.edge === "origin" && (
+                    <text x={0} y={-r - 10} textAnchor="middle" className="origin-mark">
+                      ORIGIN
+                    </text>
+                  )}
+                  <text x={0} y={r + 16} textAnchor="middle" className="genmark">
+                    gen {n.generation}
                   </text>
-                  {active && (
+                  {(active || n.edge === "origin") && (
                     <>
-                      <text x={r + 12} y={-10} className="label">
+                      <text x={r + 14} y={-10} className="label">
                         {snippet}
                         {n.body.length > 42 ? "…" : ""}
                       </text>
-                      <text x={r + 12} y={6} className="meta">
+                      <text x={r + 14} y={6} className="meta">
                         gen {n.generation} · {n.edge} · influence {compact(influence(n))}
                       </text>
                       <a
@@ -280,7 +317,7 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
                         className="node-link"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <text x={r + 12} y={22} className="link-text">
+                        <text x={r + 14} y={24} className="link-text">
                           Open source post ↗
                         </text>
                       </a>
@@ -294,7 +331,7 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
         {nodes.length === 0 && <div className="empty">No lineage in this slice.</div>}
         <div className="hint">
           Node size = <strong>influence</strong> (views/80 + likes + 2×reposts + 3×quotes + replies). Edge
-          labels show why posts connect and what they share.
+          labels are 1–2 mutation keywords. Click a label to see why it fits this step.
         </div>
         {hoverNode && (
           <div
@@ -313,18 +350,17 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter }: 
             </a>
           </div>
         )}
-        {activeEdge && !hoverNode && (
-          <div
-            className="float-card edge-card"
-            style={{
-              left: 24,
-              top: 24,
-            }}
-          >
-            <p className="edge-card-title">{edgeAnnotation(activeEdge.from.node, activeEdge.to.node).label}</p>
-            <small>{edgeAnnotation(activeEdge.from.node, activeEdge.to.node).detail}</small>
-          </div>
-        )}
+        {activeEdge && !hoverNode && (() => {
+          const ann = edgeAnnotation(activeEdge.from.node, activeEdge.to.node);
+          return (
+            <div className="float-card edge-card" style={{ left: 24, top: 24 }}>
+              <p className="edge-card-kicker">Mutation · click label for full why</p>
+              <p className="edge-card-title">{ann.label}</p>
+              <small>{ann.detail}</small>
+              {ann.reasons[0] && <small>{ann.reasons[0].why}</small>}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -340,5 +376,5 @@ function midpoint(x1: number, y1: number, x2: number, y2: number) {
 }
 
 function trimLabel(s: string): string {
-  return s.length > 16 ? `${s.slice(0, 15)}…` : s;
+  return s.length > 18 ? `${s.slice(0, 17)}…` : s;
 }

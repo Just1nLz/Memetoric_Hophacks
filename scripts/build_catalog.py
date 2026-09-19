@@ -119,29 +119,40 @@ def post_url(tweet_id: str) -> str:
 
 
 def annotate_edge(parent: dict, child: dict, sibling_count: int) -> tuple[str, str]:
-    """Short label + detail: why connected, what's shared, why a split."""
-    shared = sorted(parent.get("tokens", set()) & child.get("tokens", set()))
-    unique = sorted(child.get("tokens", set()) - parent.get("tokens", set()))
-    split = f"Split: {sibling_count + 1} branches" if sibling_count > 0 else ""
+    """Short label + detail: delta from previous node → this node."""
+    parent_toks = parent.get("tokens", set())
+    child_toks = child.get("tokens", set())
+    kept = sorted(parent_toks & child_toks)
+    added = sorted(child_toks - parent_toks)
+    dropped = sorted(parent_toks - child_toks)
+    split = f"{sibling_count + 1} branches off parent" if sibling_count > 0 else ""
 
     edge = child.get("edge")
-    if edge == "reply":
-        label = "reply"
-        detail = " · ".join(x for x in ["Direct reply in thread", split] if x)
-        return label, detail
-    if edge == "quote":
-        label = "quote"
-        keep = f"Keeps {' · '.join(shared[:3])}" if shared else "Quotes parent"
-        detail = " · ".join(x for x in [keep, split] if x)
-        return label, detail
+    via = (
+        "Replied to previous"
+        if edge == "reply"
+        else "Quoted previous"
+        if edge == "quote"
+        else "Mutated from previous"
+    )
 
-    # mutation / inferred kinship
-    if shared:
-        label = f"same: {' · '.join(shared[:2])}"
+    if added:
+        label = f"+{' · '.join(added[:2])}"
+    elif edge == "reply":
+        label = "reply"
+    elif edge == "quote":
+        label = "quote"
     else:
-        label = "loose kinship"
-    drift = f"new: {' · '.join(unique[:2])}" if unique else "rephrased variant"
-    detail = " · ".join(x for x in [drift, split] if x)
+        label = "rephrased"
+
+    parts = [
+        via,
+        f"added {', '.join(added[:4])}" if added else None,
+        f"dropped {', '.join(dropped[:3])}" if dropped else None,
+        f"kept {', '.join(kept[:3])}" if kept else "no shared tokens",
+        split or None,
+    ]
+    detail = " · ".join(x for x in parts if x)
     return label, detail
 
 
@@ -348,12 +359,32 @@ def build_tree(tweets: list[dict], snapshots: dict[str, list[dict]]) -> tuple[li
     return forest, stats
 
 
-def daily_series(tweets: list[dict]) -> list[dict]:
+def utc_day(created_at: str | None) -> str | None:
+    """Map firehose timestamps (often EDT) onto UTC calendar days to match the corpus window."""
+    if not created_at:
+        return None
+    raw = created_at.strip().replace(" ", "T")
+    raw = re.sub(r"([+-]\d{2})$", r"\1:00", raw)
+    raw = re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", raw)
+    try:
+        from datetime import datetime, timezone
+
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).date().isoformat()
+    except ValueError:
+        return created_at[:10]
+
+
+def daily_series(tweets: list[dict], window_start: str) -> list[dict]:
     buckets: dict[str, dict] = {}
     for t in tweets:
-        day = (t["created_at"] or "")[:10]
+        day = utc_day(t.get("created_at"))
         if not day:
             continue
+        if day < window_start:
+            day = window_start
         b = buckets.setdefault(day, {"t": day, "tweets": 0, "likes": 0, "views": 0, "quotes": 0})
         b["tweets"] += 1
         b["likes"] += t.get("like_count") or 0
@@ -381,12 +412,17 @@ def main() -> None:
         ids = [t["id"] for t in tweets]
         snaps = fetch_snapshots(con, ids)
         forest, stats = build_tree(tweets, snaps)
-        first = min((t["created_at"] for t in tweets if t.get("created_at")), default=None)
+        window_start = catalog["window"]["start"]
+        first_days = [d for t in tweets if (d := utc_day(t.get("created_at")))]
+        first_day = min(first_days) if first_days else None
+        if first_day and first_day < window_start:
+            first_day = window_start
+        first = f"{first_day}T00:00:00Z" if first_day else None
         catalog["memes"].append({
             **{k: meme[k] for k in ("slug", "name", "query", "blurb")},
             "first_seen": first,
             "stats": stats,
-            "series": daily_series(tweets),
+            "series": daily_series(tweets, window_start),
             "forest": forest,
         })
         print("  nodes", stats["nodes"], "roots", stats["roots"], "mut", stats["mutations"], flush=True)
