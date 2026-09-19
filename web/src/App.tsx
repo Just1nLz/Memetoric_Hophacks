@@ -74,6 +74,8 @@ export default function App() {
 
   const selectedNode: TweetNode | null =
     nodes.find((n) => n.id === selected) ?? nodes.find((n) => n.edge === "origin") ?? nodes[0] ?? null;
+  const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const parent = selectedNode?.parent_id ? byId.get(selectedNode.parent_id) ?? null : null;
 
   const toggleEdge = (k: EdgeKind) => {
     setEdges((prev) => {
@@ -194,7 +196,7 @@ export default function App() {
         />
       </main>
 
-      <Inspector node={selectedNode} />
+      <Inspector node={selectedNode} parent={parent} memeName={meme?.name ?? ""} />
     </div>
   );
 }

@@ -589,6 +589,117 @@ code {
   margin: 0 0 14px;
 }
 
+.ghost-link {
+  color: var(--lime);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.ghost-link:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.grok-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 14px;
+  align-items: center;
+}
+
+.grok-prompt-label {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.grok-prompt {
+  width: 100%;
+  resize: vertical;
+  min-height: 4.5rem;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.grok-prompt:focus {
+  outline: 2px solid var(--lime);
+  outline-offset: 1px;
+}
+
+.grok-prompt-sm {
+  min-height: 3.2rem;
+}
+
+.grok-send {
+  margin: 0;
+}
+
+.grok-thread {
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+  margin: 8px 0 4px;
+  padding: 8px 0;
+}
+
+.grok-bubble {
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.grok-bubble p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+}
+
+.grok-who {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.grok-bubble.user {
+  background: color-mix(in srgb, var(--lime) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--lime) 35%, var(--line));
+}
+
+.grok-bubble.assistant {
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+
+.grok-wait {
+  margin: 0;
+}
+
+.imagine {
+  width: 100%;
+  border-radius: 12px;
+  margin-top: 8px;
+}
+
 .ids {
   display: grid;
   gap: 8px;

@@ -1,13 +1,68 @@
-import { compact, when } from "../format";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { compact, grokBotUrl, grokChatUrl, grokImagineUrl, when } from "../format";
 import { influence, postUrl } from "../layout";
 import type { TweetNode } from "../types";
 import { Spark } from "./Charts";
 
 type Props = {
   node: TweetNode | null;
+  parent: TweetNode | null;
+  memeName: string;
 };
 
-export function Inspector({ node }: Props) {
+type ChatTurn = { role: "user" | "assistant"; content: string };
+
+function postContext(memeName: string, node: TweetNode, parent: TweetNode | null) {
+  return [
+    `Meme family: ${memeName}.`,
+    parent ? `Earlier post: ${parent.body}` : "This is a root post.",
+    `This post (${node.edge === "mutation" ? "remix, not a reply" : node.edge}): ${node.body}`,
+    `Posted ${node.created_at}. Likes ${node.like_count}.`,
+  ].join("\n");
+}
+
+function defaultAsk(node: TweetNode) {
+  if (node.edge === "origin") {
+    return "In two short paragraphs: (1) what this origin post is doing with the meme, (2) what to watch next if we are tracking its spread on X.";
+  }
+  if (node.edge === "mutation") {
+    return "This is a remix, not a reply. In two short paragraphs: (1) what changed in how people tell this joke, (2) what to watch next.";
+  }
+  return "In two short paragraphs: (1) how this post continues the thread, (2) what to watch next if we are tracking its spread on X.";
+}
+
+export function Inspector({ node, parent, memeName }: Props) {
+  const [messages, setMessages] = useState<ChatTurn[]>([]);
+  const [draft, setDraft] = useState("");
+  const [grokBusy, setGrokBusy] = useState(false);
+  const [imagineUrl, setImagineUrl] = useState<string | null>(null);
+  const [imagineDraft, setImagineDraft] = useState("");
+  const threadRef = useRef<HTMLDivElement>(null);
+
+  const starter = useMemo(() => (node ? defaultAsk(node) : ""), [node]);
+  const context = useMemo(
+    () => (node ? postContext(memeName, node, parent) : ""),
+    [memeName, node, parent],
+  );
+  const imagineStarter = useMemo(
+    () =>
+      node
+        ? `Internet meme still: "${memeName}". Inspired by this tweet, no logos: ${node.body.slice(0, 280)}`
+        : "",
+    [memeName, node],
+  );
+
+  useEffect(() => {
+    setMessages([]);
+    setDraft(starter);
+    setImagineUrl(null);
+    setImagineDraft(imagineStarter);
+  }, [node?.id, starter, imagineStarter]);
+
+  useEffect(() => {
+    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, grokBusy]);
+
   if (!node) {
     return (
       <aside className="inspector">
@@ -29,6 +84,53 @@ export function Inspector({ node }: Props) {
     ["saves", node.bookmarks_count],
   ] as const;
   const href = postUrl(node);
+  const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? draft;
+  const inThread = messages.length > 0;
+
+  const sendGrok = async () => {
+    const text = draft.trim();
+    if (!text || grokBusy) return;
+    const next: ChatTurn[] = [...messages, { role: "user", content: text }];
+    setMessages(next);
+    setDraft("");
+    setGrokBusy(true);
+    try {
+      const r = await fetch("/api/grok/explain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ context, messages: next }),
+      });
+      const data = await r.json();
+      const reply = data.text || data.error || "No reply — is the API running with XAI_API_KEY?";
+      setMessages([...next, { role: "assistant", content: reply }]);
+    } catch {
+      setMessages([
+        ...next,
+        { role: "assistant", content: "Grok API isn’t running. Start the backend, or use the Grok / GrokBot links." },
+      ]);
+    } finally {
+      setGrokBusy(false);
+    }
+  };
+
+  const imagineApi = async () => {
+    const prompt = imagineDraft.trim() || imagineStarter;
+    setGrokBusy(true);
+    try {
+      const r = await fetch("/api/grok/imagine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+      const data = await r.json();
+      if (data.image_url) setImagineUrl(data.image_url);
+      else window.open(grokImagineUrl(prompt), "_blank", "noreferrer");
+    } catch {
+      window.open(grokImagineUrl(prompt), "_blank", "noreferrer");
+    } finally {
+      setGrokBusy(false);
+    }
+  };
 
   return (
     <aside className="inspector">
@@ -78,6 +180,82 @@ export function Inspector({ node }: Props) {
           Open source post
         </a>
       </p>
+
+      <p className="kicker tight">Ask Grok</p>
+      <p className="muted tiny">
+        Edit this prompt (the selected post is attached in the background). After Grok replies, type a follow-up. Reset or
+        pick another node to start over.
+      </p>
+      <p className="muted tiny grok-attached">
+        Attached · {node.body.replace(/\s+/g, " ").slice(0, 90)}
+        {node.body.length > 90 ? "…" : ""}
+      </p>
+
+      {inThread && (
+        <div className="grok-thread" ref={threadRef}>
+          {messages.map((m, i) => (
+            <div key={`${m.role}-${i}`} className={`grok-bubble ${m.role}`}>
+              <span className="grok-who">{m.role === "user" ? "You" : "Grok"}</span>
+              <p>{m.content}</p>
+            </div>
+          ))}
+          {grokBusy && <p className="muted tiny grok-wait">Grok is thinking…</p>}
+        </div>
+      )}
+
+      <label className="grok-prompt-label">
+        {inThread ? "Follow-up" : "Prompt"}
+        <textarea
+          className="grok-prompt"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void sendGrok();
+            }
+          }}
+          rows={inThread ? 3 : 8}
+          placeholder={inThread ? "Ask a follow-up…" : "What should Grok look at?"}
+        />
+      </label>
+      <div className="grok-row">
+        <button type="button" className="play grok-send" disabled={grokBusy || !draft.trim()} onClick={() => void sendGrok()}>
+          {grokBusy ? "Sending…" : inThread ? "Send follow-up" : "Ask Grok"}
+        </button>
+        {inThread && (
+          <button
+            type="button"
+            className="ghost-link"
+            onClick={() => {
+              setMessages([]);
+              setDraft(starter);
+            }}
+          >
+            Reset thread
+          </button>
+        )}
+        <a className="ghost-link" href={grokChatUrl(lastUser)} target="_blank" rel="noreferrer">
+          Open in Grok
+        </a>
+        <a className="ghost-link" href={grokBotUrl(`${lastUser}\n${href}`)} target="_blank" rel="noreferrer">
+          GrokBot
+        </a>
+      </div>
+
+      <label className="grok-prompt-label">
+        Imagine prompt
+        <textarea
+          className="grok-prompt grok-prompt-sm"
+          value={imagineDraft}
+          onChange={(e) => setImagineDraft(e.target.value)}
+          rows={3}
+        />
+      </label>
+      <button type="button" className="ghost-link" disabled={grokBusy} onClick={() => void imagineApi()}>
+        GrokImagine
+      </button>
+      {imagineUrl && <img className="imagine" src={imagineUrl} alt="Grok Imagine still" />}
     </aside>
   );
 }

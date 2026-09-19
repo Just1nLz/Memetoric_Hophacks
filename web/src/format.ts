@@ -34,3 +34,15 @@ export function ts(iso: string): number {
   return parseTime(iso)?.getTime() ?? 0;
 }
 
+export function grokChatUrl(prompt: string): string {
+  return `https://grok.com/?q=${encodeURIComponent(prompt)}`;
+}
+
+export function grokImagineUrl(prompt: string): string {
+  return `https://grok.com/imagine?prompt=${encodeURIComponent(prompt)}`;
+}
+
+export function grokBotUrl(prompt: string): string {
+  return `https://x.com/intent/post?text=${encodeURIComponent(`@grok ${prompt}`)}`;
+}
+
