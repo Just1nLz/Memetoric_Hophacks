@@ -13,6 +13,7 @@ type VolumeProps = {
 export function Volume({ series, peakDay, activeDay, onSelectDay }: VolumeProps) {
   const [metric, setMetric] = useState<"tweets" | "likes">("tweets");
   const [hover, setHover] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const live = series.filter((s) => s.coverage !== false);
   const max = Math.max(...live.map((s) => (metric === "tweets" ? s.tweets : s.likes)), 1);
   const focus = series.find((s) => s.t === (hover ?? activeDay)) ?? live.at(-1) ?? series.at(-1) ?? null;
@@ -20,15 +21,19 @@ export function Volume({ series, peakDay, activeDay, onSelectDay }: VolumeProps)
   const last = series.at(-1)?.t;
 
   return (
-    <div className="volume-panel">
+    <div className={`volume-panel ${open ? "is-open" : "is-compact"}`}>
       <div className="volume-head">
-        <div>
-          <p className="kicker">Monthly usage + saturation</p>
-          <p className="volume-help">
-            Full window on the axis. Color is lifecycle: rising, peak, cooling, then saturated (late use reads as cringe).
-            Gray days have no local firehose.
-          </p>
-        </div>
+        <button
+          type="button"
+          className="volume-toggle-panel"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span className="kicker">Saturation</span>
+          <span className="volume-chevron" aria-hidden>
+            {open ? "▾" : "▸"}
+          </span>
+        </button>
         <div className="volume-toggle" role="group" aria-label="Volume metric">
           <button type="button" className={metric === "tweets" ? "on" : ""} onClick={() => setMetric("tweets")}>
             Posts
@@ -38,13 +43,19 @@ export function Volume({ series, peakDay, activeDay, onSelectDay }: VolumeProps)
           </button>
         </div>
       </div>
-      <div className="volume">
+      {open && (
+        <p className="volume-help">
+          Lifecycle color: rising → peak → cooling → saturated. Gray = no local firehose. Click a day to scrub the
+          tree.
+        </p>
+      )}
+      <div className="volume" role="img" aria-label="Daily usage bars">
         {series.map((s) => {
           const value = metric === "tweets" ? s.tweets : s.likes;
           const on = s.t === activeDay;
           const hot = s.t === hover;
           const uncovered = s.coverage === false;
-          const h = uncovered ? 8 : Math.max(6, (value / max) * 100);
+          const h = uncovered ? 6 : Math.max(4, (value / max) * 100);
           return (
             <button
               key={s.t}
@@ -61,23 +72,25 @@ export function Volume({ series, peakDay, activeDay, onSelectDay }: VolumeProps)
           );
         })}
       </div>
-      <div className="sat-legend" aria-hidden>
-        <i className="phase-rising" /> rising
-        <i className="phase-peak" /> peak
-        <i className="phase-decline" /> cooling
-        <i className="phase-saturated" /> saturated
-        <i className="phase-uncovered" /> no data
-      </div>
+      {open && (
+        <div className="sat-legend" aria-hidden>
+          <i className="phase-rising" /> rising
+          <i className="phase-peak" /> peak
+          <i className="phase-decline" /> cooling
+          <i className="phase-saturated" /> saturated
+          <i className="phase-uncovered" /> no data
+        </div>
+      )}
       <div className="volume-foot">
         <span>{first ? dayLabel(first) : "—"}</span>
         <strong>
           {focus
-            ? `${dayLabel(focus.t)} · ${compact(focus.tweets)} posts · ${phaseLabel(focus.phase)}`
+            ? `${dayLabel(focus.t)} · ${compact(focus.tweets)} · ${phaseLabel(focus.phase)}`
             : "Hover a day"}
         </strong>
         <span>{last ? dayLabel(last) : "—"}</span>
       </div>
-      {focus && <p className="sat-readout">{saturationCopy(focus, peakDay ?? null)}</p>}
+      {open && focus && <p className="sat-readout">{saturationCopy(focus, peakDay ?? null)}</p>}
     </div>
   );
 }
