@@ -5,6 +5,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { GrokAssistant, GrokFab } from "./components/GrokAssistant";
 import { LineageToolbar } from "./components/LineageToolbar";
 import { MemeHeader } from "./components/MemeHeader";
+import { PathRail } from "./components/PathRail";
 import { MemeSidebar } from "./components/MemeSidebar";
 import { NodeContextMenu } from "./components/NodeContextMenu";
 import { NodeDetailsDrawer } from "./components/NodeDetailsDrawer";
@@ -23,6 +24,7 @@ import {
   relatedIds,
   type LineageFilters,
 } from "./lineage";
+import { lineagePaths, pathIndexForNode } from "./paths";
 import { mutationsByDay } from "./saturation";
 import type { Catalog, EdgeKind, Meme, TweetNode } from "./types";
 
@@ -50,6 +52,8 @@ export default function App() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [focusBranch, setFocusBranch] = useState(false);
+  const [pathMode, setPathMode] = useState(true);
+  const [pathIndex, setPathIndex] = useState(0);
   const [inspected, setInspected] = useState(false);
   const [scalePct, setScalePct] = useState(100);
   const [ctx, setCtx] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -80,12 +84,15 @@ export default function App() {
     [meme, catalog, terms],
   );
   const activeTree = langTrees.find((t) => t.key === langKey) ?? langTrees[0] ?? null;
+  const paths = useMemo(() => (activeTree ? lineagePaths(activeTree.forest) : []), [activeTree]);
+  const activePath = pathMode ? paths[Math.min(pathIndex, Math.max(0, paths.length - 1))] ?? null : null;
   const displayForest = useMemo(() => {
     if (!activeTree) return [];
+    if (activePath) return pruneToIds(activeTree.forest, activePath.ids);
     const base = treeMode === "consumer" ? pruneConsumerForest(activeTree.forest) : activeTree.forest;
     if (!focusBranch || !selected) return base;
     return pruneToIds(base, lineageBundle(base, selected));
-  }, [activeTree, treeMode, focusBranch, selected]);
+  }, [activeTree, treeMode, focusBranch, selected, activePath]);
   const lineageNodes = useMemo(() => (activeTree ? flatten(activeTree.forest) : []), [activeTree]);
   const mutByDay = useMemo(() => mutationsByDay(lineageNodes), [lineageNodes]);
   const nodes = useMemo(() => flatten(displayForest), [displayForest]);
@@ -102,6 +109,7 @@ export default function App() {
     setPlaying(false);
     setDrawerOpen(false);
     setFocusBranch(false);
+    setPathIndex(0);
     setInspected(false);
     setSearchOpen(false);
     setSearchQuery("");
@@ -116,6 +124,16 @@ export default function App() {
     setStep(Math.max(0, stamps.length - 1));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meme?.slug, langKey]);
+
+  useEffect(() => {
+    if (pathIndex >= paths.length) setPathIndex(0);
+  }, [paths.length, pathIndex]);
+
+  useEffect(() => {
+    setPlaying(false);
+    setStep(Math.max(0, stamps.length - 1));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePath?.id]);
 
   useEffect(() => {
     const want = pendingSelect.current;
@@ -169,6 +187,15 @@ export default function App() {
   }, [playing, stamps.length, speed]);
 
   const cutoff = stamps[step] ?? Number.POSITIVE_INFINITY;
+  const arrivingIds = useMemo(() => {
+    const stamp = stamps[step];
+    const ids = new Set<string>();
+    if (!Number.isFinite(stamp)) return ids;
+    for (const n of nodes) {
+      if (appearHour(n, originHour) === stamp) ids.add(n.id);
+    }
+    return ids;
+  }, [nodes, stamps, step, originHour]);
   const visible = useMemo(() => {
     const ids = new Set<string>();
     if (origin) ids.add(origin.id);
@@ -188,6 +215,11 @@ export default function App() {
       setFocusBranch(false);
     }
   }, [treeMode, nodes, selected]);
+
+  useEffect(() => {
+    if (stamps.length === 0) return;
+    if (step > stamps.length - 1) setStep(stamps.length - 1);
+  }, [stamps.length, step]);
 
   const selectedNode: TweetNode | null = selected ? (byId.get(selected) ?? null) : null;
   const parentNode =
@@ -245,12 +277,49 @@ export default function App() {
     canvasRef.current?.origin();
   };
 
+  const showForest = () => {
+    setPathMode(false);
+    setFocusBranch(false);
+  };
+
+  const readPaths = (index = pathIndex) => {
+    setFocusBranch(false);
+    setPathMode(true);
+    setPathIndex(paths.length ? ((index % paths.length) + paths.length) % paths.length : 0);
+  };
+
+  const cyclePath = (dir: number) => {
+    if (!paths.length) return;
+    readPaths(pathIndex + dir);
+  };
+
+  const readPathForNode = (id: string) => {
+    readPaths(pathIndexForNode(paths, id));
+    canvasRef.current?.focusNode(id);
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const meta = e.metaKey || e.ctrlKey;
       if (meta && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setCommandOpen(true);
+        return;
+      }
+      const typing =
+        commandOpen ||
+        searchOpen ||
+        (e.target instanceof HTMLElement &&
+          (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable));
+      if (!typing && (e.key === "ArrowRight" || e.key === "]")) {
+        e.preventDefault();
+        if (!pathMode) readPaths(pathIndex);
+        else cyclePath(1);
+        return;
+      }
+      if (!typing && pathMode && (e.key === "ArrowLeft" || e.key === "[")) {
+        e.preventDefault();
+        cyclePath(-1);
         return;
       }
       if (e.key !== "Escape") return;
@@ -292,10 +361,11 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [commandOpen, ctx, grokOpen, analyticsOpen, filtersOpen, moreOpen, searchOpen, drawerOpen, selected, navOpen]);
+  }, [commandOpen, ctx, grokOpen, analyticsOpen, filtersOpen, moreOpen, searchOpen, drawerOpen, selected, navOpen, pathMode, pathIndex, paths.length]);
 
   const genNow = Math.max(0, ...nodes.filter((n) => visible.has(n.id)).map((n) => n.generation || 0));
   const genMax = Math.max(0, ...nodes.map((n) => n.generation || 0));
+  const familyGens = Math.max(0, ...lineageNodes.map((n) => n.generation || 0));
 
   if (error) {
     return (
@@ -338,8 +408,8 @@ export default function App() {
           <MemeHeader
             name={meme.name}
             blurb={meme.blurb}
-            nodes={nodes.length}
-            generations={genMax}
+            nodes={lineageNodes.length}
+            generations={familyGens}
             language={activeTree.name}
             firstSeen={meme.first_seen}
             series={meme.series}
@@ -400,10 +470,22 @@ export default function App() {
               setMoreOpen(false);
             }}
           />
+          <PathRail
+            enabled={pathMode && paths.length > 0}
+            path={activePath}
+            index={Math.min(pathIndex, Math.max(0, paths.length - 1))}
+            total={paths.length}
+            onPrev={() => cyclePath(-1)}
+            onNext={() => cyclePath(1)}
+            onToggle={() => {
+              if (pathMode && activePath) showForest();
+              else readPaths(selected ? pathIndexForNode(paths, selected) : pathIndex);
+            }}
+          />
           <div className="graph-stage">
             <TreeCanvas
               ref={canvasRef}
-              key={`${meme.slug}-${activeTree.key}-${treeMode}-${focusBranch ? selected : "full"}`}
+              key={`${meme.slug}-${activeTree.key}-${treeMode}-${activePath?.id ?? (focusBranch ? selected : "full")}`}
               forest={displayForest}
               visible={visible}
               selected={selected}
@@ -412,6 +494,7 @@ export default function App() {
               onSelect={inspect}
               onFocusSubtree={(id) => {
                 inspect(id);
+                setPathMode(false);
                 setFocusBranch(true);
                 canvasRef.current?.focusNode(id);
               }}
@@ -421,10 +504,17 @@ export default function App() {
               }}
               edgeFilter={new Set<EdgeKind>([...edges, "origin"])}
               terms={terms}
-              pulse={step === 0 ? (origin?.id ?? null) : null}
+              pulse={playing ? arrivingIds : step === 0 ? origin?.id ?? null : null}
+              playing={playing}
               series={meme.series}
               onViewChange={setScalePct}
-              hint={inspected ? null : "Lime origin · blue reply · orange quote · gold dashed mutation. Scroll to zoom."}
+              hint={
+                inspected
+                  ? null
+                  : pathMode
+                    ? "One descent from the origin. Next path for another take. Scroll to zoom."
+                    : "Lime origin · blue reply · orange quote · gold dashed mutation. Scroll to zoom."
+              }
               focusBanner={focusBranch}
               onClearFocus={() => setFocusBranch(false)}
             />
@@ -437,10 +527,16 @@ export default function App() {
             />
             <AnalyticsPanel
               open={analyticsOpen}
+              nodes={lineageNodes}
               series={meme.series}
               peakDay={meme.saturation?.peak}
               mutations={mutByDay}
               activeDay={stamps[step] ? utcDay(new Date(stamps[step]).toISOString()) : null}
+              selectedId={selected}
+              onInspect={(id) => {
+                const node = lineageNodes.find((n) => n.id === id);
+                if (node) pickNode(node);
+              }}
               onSelectDay={(day) => {
                 const target = Date.parse(`${day}T12:00:00.000Z`);
                 if (!Number.isFinite(target) || stamps.length === 0) return;
@@ -498,17 +594,23 @@ export default function App() {
           node={selectedNode}
           parent={parentNode}
           terms={terms}
+          family={lineageNodes}
           series={meme.series}
-          peakDay={meme.saturation?.peak}
           focusOn={focusBranch}
+          pathMode={pathMode}
           onClose={() => setDrawerOpen(false)}
           onFocusBranch={() => {
             if (selected) {
+              setPathMode(false);
               setFocusBranch(true);
               canvasRef.current?.focusNode(selected);
             }
           }}
           onClearFocus={() => setFocusBranch(false)}
+          onReadPath={() => {
+            if (selected) readPathForNode(selected);
+          }}
+          onShowForest={showForest}
           onAskGrok={() => {
             setAnalyticsOpen(false);
             setGrokOpen(true);
@@ -531,6 +633,9 @@ export default function App() {
             }}
             onOrigin={jumpOrigin}
             onFit={() => canvasRef.current?.fit()}
+            onReadPath={() => readPaths(selected ? pathIndexForNode(paths, selected) : pathIndex)}
+            onForest={showForest}
+            onNextPath={() => cyclePath(1)}
             onAnalytics={() => {
               setGrokOpen(false);
               setAnalyticsOpen(true);
@@ -544,8 +649,14 @@ export default function App() {
               onClose={() => setCtx(null)}
               onFocus={() => {
                 inspect(ctx.id);
+                setPathMode(false);
                 setFocusBranch(true);
                 canvasRef.current?.focusNode(ctx.id);
+                setCtx(null);
+              }}
+              onReadPath={() => {
+                inspect(ctx.id);
+                readPathForNode(ctx.id);
                 setCtx(null);
               }}
               onAsk={() => {

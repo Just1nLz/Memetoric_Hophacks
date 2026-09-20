@@ -6,11 +6,12 @@ type Props = {
   node: TweetNode;
   onClose: () => void;
   onFocus: () => void;
+  onReadPath?: () => void;
   onAsk: () => void;
   onOpen: () => void;
 };
 
-export function NodeContextMenu({ x, y, node, onClose, onFocus, onAsk, onOpen }: Props) {
+export function NodeContextMenu({ x, y, node, onClose, onFocus, onReadPath, onAsk, onOpen }: Props) {
   return (
     <div className="ctx-scrim" onMouseDown={onClose}>
       <div
@@ -20,6 +21,11 @@ export function NodeContextMenu({ x, y, node, onClose, onFocus, onAsk, onOpen }:
         role="menu"
       >
         <p className="kicker">gen {node.generation}</p>
+        {onReadPath && (
+          <button type="button" role="menuitem" onClick={onReadPath}>
+            Read this path
+          </button>
+        )}
         <button type="button" role="menuitem" onClick={onFocus}>
           Focus branch
         </button>

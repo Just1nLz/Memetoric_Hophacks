@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { compact, when } from "../format";
 import { highlightMeme } from "../highlight";
+import { bandLabel, reportFor } from "../influence";
+import { IndexMeter } from "./InfluenceMeter";
 import { edgeAnnotation, postUrl } from "../layout";
-import { phaseLabel, saturationCopy, saturationForPost } from "../saturation";
+import { satInfluenceLine, saturationForPost } from "../saturation";
 import type { DayPoint, TweetNode } from "../types";
+import { SaturationGauge } from "./SaturationGauge";
 
 type Tab = "overview" | "evidence" | "analytics";
 
@@ -12,12 +15,15 @@ type Props = {
   node: TweetNode | null;
   parent: TweetNode | null;
   terms: string[];
+  family: TweetNode[];
   series: DayPoint[];
-  peakDay?: string | null;
   focusOn: boolean;
+  pathMode?: boolean;
   onClose: () => void;
   onFocusBranch: () => void;
   onClearFocus: () => void;
+  onReadPath?: () => void;
+  onShowForest?: () => void;
   onAskGrok: () => void;
 };
 
@@ -26,12 +32,15 @@ export function NodeDetailsDrawer({
   node,
   parent,
   terms,
+  family,
   series,
-  peakDay = null,
   focusOn,
+  pathMode = false,
   onClose,
   onFocusBranch,
   onClearFocus,
+  onReadPath,
+  onShowForest,
   onAskGrok,
 }: Props) {
   const [tab, setTab] = useState<Tab>("overview");
@@ -76,20 +85,29 @@ export function NodeDetailsDrawer({
             )}
             {tab === "evidence" && <Evidence node={node} parent={parent} terms={terms} />}
             {tab === "analytics" && (
-              <NodeAnalytics node={node} parent={parent} series={series} peakDay={peakDay} />
+              <NodeAnalytics node={node} parent={parent} family={family} series={series} />
             )}
           </div>
 
           <footer className="drawer-foot">
-            {focusOn ? (
-              <button type="button" className="tool-btn on" onClick={onClearFocus}>
-                Return to full tree
+          {focusOn ? (
+            <button type="button" className="tool-btn on" onClick={onClearFocus}>
+              Return to full tree
+            </button>
+          ) : pathMode ? (
+            <button type="button" className="tool-btn" onClick={() => onShowForest?.()}>
+              Full family
+            </button>
+          ) : (
+            <>
+              <button type="button" className="tool-btn" onClick={onReadPath}>
+                Read this path
               </button>
-            ) : (
               <button type="button" className="tool-btn" onClick={onFocusBranch}>
                 Focus branch
               </button>
-            )}
+            </>
+          )}
             <button type="button" className="tool-btn" onClick={onAskGrok}>
               Ask Grok
             </button>
@@ -184,18 +202,19 @@ function Evidence({
 function NodeAnalytics({
   node,
   parent,
+  family,
   series,
-  peakDay,
 }: {
   node: TweetNode;
   parent: TweetNode | null;
+  family: TweetNode[];
   series: DayPoint[];
-  peakDay: string | null;
 }) {
-  const sat = saturationForPost(series, node);
+  const report = reportFor(node, family.length ? family : [node]);
   const ann = parent && node.edge !== "origin" ? edgeAnnotation(parent, node) : null;
+  const sat = saturationForPost(series, node);
   return (
-    <div className="drawer-section">
+    <div className="drawer-section influence-panel">
       <div className="mutation-explain">
         <p className="kicker tight">What this mutation is</p>
         {ann ? (
@@ -213,33 +232,43 @@ function NodeAnalytics({
         )}
       </div>
       {sat && (
-        <div className={`sat-banner phase-${sat.phase ?? "unknown"}`}>
-          <p className="kicker tight sat-banner-k">Saturation · {phaseLabel(sat.phase)}</p>
-          {sat.saturation != null && (
-            <div className="sat-meter sat-meter-inline">
-              <div className="sat-meter-fill" style={{ width: `${Math.round(sat.saturation * 100)}%` }} />
-            </div>
-          )}
-          <p>{saturationCopy(sat, peakDay)}</p>
-        </div>
+        <SaturationGauge
+          point={sat}
+          title="Saturation · when this post landed"
+          footnote={satInfluenceLine(sat.phase, report.index)}
+        />
       )}
-      <div className="metric-grid compact">
-        {(
-          [
-            ["likes", node.like_count],
-            ["replies", node.reply_count],
-            ["reposts", node.retweet_count],
-            ["quotes", node.quote_count],
-            ["views", node.views_count],
-            ["saves", node.bookmarks_count],
-          ] as const
-        ).map(([k, v]) => (
-          <div key={k} className="metric">
-            <span>{k}</span>
-            <strong>{compact(v)}</strong>
-          </div>
-        ))}
+      <div className="influence-hero">
+        <p className="kicker tight">Influence index</p>
+        <p className="idx-value">
+          <strong>{report.index}</strong>
+          <span>
+            {bandLabel(report.band)} · rank {report.rank} of {report.of}
+          </span>
+        </p>
+        <IndexMeter report={report} />
       </div>
+      <p className="why">{report.lead}</p>
+      <div className="driver-list">
+        <p className="kicker tight">What is carrying the score</p>
+        {report.drivers.length === 0 ? (
+          <p className="muted small">No engagement landed on this post in the sample.</p>
+        ) : (
+          report.drivers.map((d) => (
+            <div key={d.key} className="driver-row">
+              <span>{d.label}</span>
+              <i>
+                <b style={{ width: `${Math.max(3, Math.round(d.share * 100))}%` }} />
+              </i>
+              <em>{Math.round(d.share * 100)}%</em>
+            </div>
+          ))
+        )}
+      </div>
+      <p className="muted small">
+        Shares are of the weighted score, not raw counts. Quotes 4× · reposts 2.8× · replies 2.2× · saves 1.6×
+        · likes 1× · views as ln(1+V). 100 is the hardest-hitting post in this family.
+      </p>
     </div>
   );
 }

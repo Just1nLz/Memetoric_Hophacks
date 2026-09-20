@@ -1055,16 +1055,15 @@ def trend_parquet() -> list[str]:
 
 
 def annotate_saturation(points: list[dict]) -> list[dict]:
+    """Cumulative share of the month. 50 is the sweet spot; 80+ is oversaturated."""
     live = [p for p in points if p.get("coverage") and p.get("tweets")]
     if not live:
         for p in points:
             p.setdefault("phase", "unknown")
             p.setdefault("saturation", 0)
         return points
-    peak = max(live, key=lambda p: p["tweets"])
     total = sum(p["tweets"] for p in live) or 1
     cum = 0
-    peaked = False
     for p in points:
         if not p.get("coverage"):
             p["phase"] = "uncovered"
@@ -1073,15 +1072,16 @@ def annotate_saturation(points: list[dict]) -> list[dict]:
         cum += p["tweets"]
         sat = round(cum / total, 3)
         p["saturation"] = sat
-        if p["t"] == peak["t"]:
-            p["phase"] = "peak"
-            peaked = True
-        elif not peaked:
-            p["phase"] = "rising"
-        elif sat >= 0.8 or p["tweets"] < max(1, peak["tweets"] * 0.25):
-            p["phase"] = "saturated"
+        if sat < 0.25:
+            p["phase"] = "emerging"
+        elif sat < 0.40:
+            p["phase"] = "building"
+        elif sat < 0.65:
+            p["phase"] = "trending"
+        elif sat < 0.80:
+            p["phase"] = "cooling"
         else:
-            p["phase"] = "decline"
+            p["phase"] = "oversaturated"
     return points
 
 
@@ -1196,11 +1196,12 @@ def refresh_month_trends(catalog: dict) -> dict:
         if meme["slug"] not in slugs:
             continue
         meme["series"] = fill_window_series(by_slug[meme["slug"]], start, end, coverage_end)
-        live = [p for p in meme["series"] if p.get("phase") == "peak"]
+        covered = [p for p in meme["series"] if p.get("coverage") and p.get("tweets")]
+        loudest = max(covered, key=lambda p: p["tweets"]) if covered else None
         meme["saturation"] = {
-            "peak": live[0]["t"] if live else None,
+            "peak": loudest["t"] if loudest else None,
             "coverage_end": coverage_end,
-            "note": "Saturation is share of observed phrase volume used up by this day. After the peak, late use reads as dated — cringe to fluent readers.",
+            "note": "Saturation is how far the joke has travelled this month. ~50 is the sweet spot (enough exposure, still funny). 80+ is oversaturated — using it reads as cringe.",
         }
         print("  trend", meme["slug"], "days", sum(1 for p in meme["series"] if p.get("coverage")), flush=True)
     catalog["slice_note"] = (

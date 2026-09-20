@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { compact, grokBotUrl, grokChatUrl, grokImagineUrl, when } from "../format";
 import { highlightMeme } from "../highlight";
 import { edgeAnnotation, influence, postUrl } from "../layout";
-import { phaseLabel, saturationCopy, saturationForPost } from "../saturation";
+import { saturationForPost } from "../saturation";
 import type { DayPoint, TweetNode } from "../types";
+import { SaturationGauge } from "./SaturationGauge";
 
 type Props = {
   node: TweetNode | null;
@@ -11,7 +12,6 @@ type Props = {
   memeName?: string;
   terms?: string[];
   series?: DayPoint[];
-  peakDay?: string | null;
 };
 
 type ChatTurn = { role: "user" | "assistant"; content: string };
@@ -45,7 +45,7 @@ function defaultAsk(node: TweetNode, parent: TweetNode | null) {
   return "In two short paragraphs: (1) how this post continues the thread, (2) what to watch next if we are tracking its spread on X.";
 }
 
-export function Inspector({ node, parent = null, memeName = "", terms = [], series = [], peakDay = null }: Props) {
+export function Inspector({ node, parent = null, memeName = "", terms = [], series = [] }: Props) {
   const [messages, setMessages] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState("");
   const [grokBusy, setGrokBusy] = useState(false);
@@ -156,15 +156,7 @@ export function Inspector({ node, parent = null, memeName = "", terms = [], seri
         const sat = saturationForPost(series, node);
         if (!sat) return null;
         return (
-          <div className={`sat-banner phase-${sat.phase ?? "unknown"}`}>
-            <p className="kicker tight sat-banner-k">Saturation · {phaseLabel(sat.phase)}</p>
-            {sat.saturation != null && (
-              <div className="sat-meter sat-meter-inline">
-                <div className="sat-meter-fill" style={{ width: `${Math.round(sat.saturation * 100)}%` }} />
-              </div>
-            )}
-            <p>{saturationCopy(sat, peakDay)}</p>
-          </div>
+          <SaturationGauge point={sat} title="Saturation · when this post landed" />
         );
       })()}
       <h2>{node.edge === "origin" ? "Origin tweet" : `${cap(node.edge)} of the line`}</h2>

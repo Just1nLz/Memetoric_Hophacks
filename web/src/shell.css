@@ -30,7 +30,7 @@
 
 .workspace-main {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -352,6 +352,40 @@
   padding: 4px 18px 8px;
 }
 
+.path-rail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin: 0 18px 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(18, 20, 14, 0.9);
+}
+
+.path-rail.idle {
+  border-style: dashed;
+}
+
+.path-rail-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.path-rail-copy strong {
+  font-size: 0.92rem;
+  letter-spacing: 0.01em;
+}
+
+.path-rail-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .tool-btn {
   background: transparent;
   border: 1px solid var(--line);
@@ -360,6 +394,11 @@
   font-size: 0.78rem;
   cursor: pointer;
   transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
+}
+
+.tool-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .tool-btn.icon {
@@ -668,6 +707,8 @@
 .rel-legend .quote { color: var(--quote); }
 .rel-legend .mutation { color: var(--mutation); }
 .rel-legend .origin { color: var(--lime); }
+
+.focus-pill {
   position: absolute;
   top: 12px;
   left: 50%;
@@ -877,7 +918,7 @@
   right: 12px;
   bottom: 12px;
   z-index: 8;
-  max-height: min(52vh, 460px);
+  max-height: min(70vh, 640px);
   overflow: auto;
   background: #15170f;
   border: 1px solid var(--line);
@@ -886,7 +927,7 @@
   animation: rise-in 200ms ease;
 }
 
-.analytics-sheet .mutation-primer {
+.analytics-sheet .influence-primer {
   margin: 8px 14px 0;
 }
 
@@ -899,6 +940,12 @@
 .analytics-head h2 {
   margin: 0;
   font-size: 1.05rem;
+}
+
+.analytics-sheet .sat-gauge,
+.analytics-sheet .sat-primer {
+  margin-left: 14px;
+  margin-right: 14px;
 }
 
 .analytics-sheet .volume-panel {
