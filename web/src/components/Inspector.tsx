@@ -152,6 +152,21 @@ export function Inspector({ node, parent = null, memeName = "", terms = [], seri
   return (
     <aside className="inspector">
       <p className="kicker">Observation · gen {node.generation}</p>
+      {(() => {
+        const sat = saturationForPost(series, node);
+        if (!sat) return null;
+        return (
+          <div className={`sat-banner phase-${sat.phase ?? "unknown"}`}>
+            <p className="kicker tight sat-banner-k">Saturation · {phaseLabel(sat.phase)}</p>
+            {sat.saturation != null && (
+              <div className="sat-meter sat-meter-inline">
+                <div className="sat-meter-fill" style={{ width: `${Math.round(sat.saturation * 100)}%` }} />
+              </div>
+            )}
+            <p>{saturationCopy(sat, peakDay)}</p>
+          </div>
+        );
+      })()}
       <h2>{node.edge === "origin" ? "Origin tweet" : `${cap(node.edge)} of the line`}</h2>
       <p className="tweet-body">{highlightMeme(node.body, terms)}</p>
       <p className="source-row">
@@ -199,17 +214,6 @@ export function Inspector({ node, parent = null, memeName = "", terms = [], seri
           </span>
         </p>
       </div>
-      {(() => {
-        const sat = saturationForPost(series, node);
-        if (!sat) return null;
-        return (
-          <div className={`influence-note sat-note phase-${sat.phase ?? "unknown"}`}>
-            <p className="kicker tight">Saturation · {phaseLabel(sat.phase)}</p>
-            <p>{saturationCopy(sat, peakDay)}</p>
-          </div>
-        );
-      })()}
-
       <p className="kicker tight">Ask GrokBot</p>
 
       {inThread && (

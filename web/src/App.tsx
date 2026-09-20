@@ -4,9 +4,10 @@ import { KeywordSearch, type SearchHit } from "./components/KeywordSearch";
 import { Timeline } from "./components/Timeline";
 import { TreeCanvas } from "./components/TreeCanvas";
 import { Volume } from "./components/Charts";
-import { clampToWindow, compact, ts, utcDay, when } from "./format";
+import { clampToWindow, compact, dayLabel, ts, utcDay, when } from "./format";
 import { memeTerms } from "./highlight";
 import { flatten, languageKey, pruneConsumerForest, treesByLanguage } from "./layout";
+import { lifecycleSummary, mutationsByDay, phaseLabel, phaseOf } from "./saturation";
 import type { Catalog, EdgeKind, Meme, TweetNode } from "./types";
 
 export default function App() {
@@ -19,7 +20,7 @@ export default function App() {
   const [step, setStep] = useState(0);
   const [edges, setEdges] = useState<Set<EdgeKind>>(new Set(["reply", "quote"]));
   const [langKey, setLangKey] = useState<string | null>(null);
-  const [treeMode, setTreeMode] = useState<"consumer" | "researcher">("consumer");
+  const [treeMode, setTreeMode] = useState<"consumer" | "researcher">("researcher");
   const pendingSelect = useRef<string | null>(null);
 
   useEffect(() => {
@@ -36,6 +37,26 @@ export default function App() {
       .catch((e: Error) => setError(e.message));
   }, []);
 
+  const genBySlug = useMemo(() => {
+    const out = new Map<string, number>();
+    if (!catalog) return out;
+    for (const m of catalog.memes) {
+      const trees = treesByLanguage(
+        m.forest,
+        catalog.window.start,
+        memeTerms(m.name, m.query),
+        m.name,
+        m.query,
+      );
+      let max = m.stats.max_generation || 0;
+      for (const t of trees) {
+        for (const n of flatten(t.forest)) max = Math.max(max, n.generation || 0);
+      }
+      out.set(m.slug, max);
+    }
+    return out;
+  }, [catalog]);
+
   const meme = catalog?.memes.find((m) => m.slug === slug) ?? catalog?.memes[0] ?? null;
   const terms = useMemo(() => (meme ? memeTerms(meme.name, meme.query) : []), [meme]);
   const langTrees = useMemo(
@@ -50,6 +71,9 @@ export default function App() {
     if (!activeTree) return [];
     return treeMode === "consumer" ? pruneConsumerForest(activeTree.forest) : activeTree.forest;
   }, [activeTree, treeMode]);
+  const lineageNodes = useMemo(() => (activeTree ? flatten(activeTree.forest) : []), [activeTree]);
+  const mutByDay = useMemo(() => mutationsByDay(lineageNodes), [lineageNodes]);
+  const life = useMemo(() => (meme ? lifecycleSummary(meme.series) : null), [meme]);
   const nodes = useMemo(() => flatten(displayForest), [displayForest]);
   const origin = activeTree?.forest[0] ?? nodes.find((n) => n.edge === "origin") ?? null;
   const originHour = origin ? hourFloor(ts(origin.created_at)) : 0;
@@ -215,7 +239,7 @@ export default function App() {
                 <span className="name">{m.name}</span>
                 <span className="q">{m.query}</span>
                 <span className="nums">
-                  {m.stats.nodes} tweets · {m.stats.max_generation} gens · {compact(m.stats.likes)} likes
+                  {m.stats.nodes} tweets · {genBySlug.get(m.slug) ?? m.stats.max_generation} gens · {compact(m.stats.likes)} likes
                 </span>
               </button>
             </li>
@@ -258,15 +282,22 @@ export default function App() {
             </div>
             <p className="muted small origin-note">
               {treeMode === "consumer"
-                ? "Highlights only: origin plus the highest-reach replies, quotes, and posts."
-                : "Full lineage: every reply, quote, and grafted island in this language."}
+                ? "Month spine: one lineage through time plus a few high-reach branches."
+                : "Full lineage: every reply, quote, and mutation in this language, stacked by generation."}
             </p>
           </div>
           <dl className="stats">
             <Stat k="this tree" v={String(nodes.length)} />
-            <Stat k="language" v={activeTree.name} />
-            <Stat k="langs" v={String(langTrees.length)} />
-            <Stat k="first seen" v={when(meme.first_seen)} />
+            <Stat
+              k="gens"
+              v={String(Math.max(0, ...nodes.map((n) => n.generation || 0)))}
+            />
+            <Stat k="peak" v={life?.peakDay ? dayLabel(life.peakDay) : "—"} />
+            <Stat k="now" v={life ? phaseLabel(life.lastPhase) : "—"} />
+            <Stat
+              k="spent"
+              v={life?.lastSat != null ? `${Math.round(life.lastSat * 100)}%` : "—"}
+            />
           </dl>
         </div>
         <div className="tree-switch" role="tablist" aria-label="Language trees">
@@ -289,28 +320,29 @@ export default function App() {
             </button>
           ))}
         </div>
+        <Volume
+          series={meme.series}
+          peakDay={meme.saturation?.peak}
+          mutations={mutByDay}
+          activeDay={stamps[step] ? utcDay(new Date(stamps[step]).toISOString()) : null}
+          onSelectDay={(day) => {
+            const target = Date.parse(`${day}T12:00:00.000Z`);
+            if (!Number.isFinite(target) || stamps.length === 0) return;
+            let best = 0;
+            let bestDist = Number.POSITIVE_INFINITY;
+            stamps.forEach((t, i) => {
+              const dist = Math.abs(t - target);
+              if (dist < bestDist) {
+                bestDist = dist;
+                best = i;
+              }
+            });
+            setPlaying(false);
+            setStep(best);
+          }}
+        />
         <div className="toolbar">
           <KeywordSearch catalog={catalog} query={query} onQuery={setQuery} onPick={onPickHit} />
-          <Volume
-            series={meme.series}
-            peakDay={meme.saturation?.peak}
-            activeDay={stamps[step] ? utcDay(new Date(stamps[step]).toISOString()) : null}
-            onSelectDay={(day) => {
-              const target = Date.parse(`${day}T12:00:00.000Z`);
-              if (!Number.isFinite(target) || stamps.length === 0) return;
-              let best = 0;
-              let bestDist = Number.POSITIVE_INFINITY;
-              stamps.forEach((t, i) => {
-                const dist = Math.abs(t - target);
-                if (dist < bestDist) {
-                  bestDist = dist;
-                  best = i;
-                }
-              });
-              setPlaying(false);
-              setStep(best);
-            }}
-          />
         </div>
         <TreeCanvas
           key={`${meme.slug}-${activeTree.key}-${treeMode}`}
@@ -321,11 +353,13 @@ export default function App() {
           edgeFilter={new Set<EdgeKind>([...edges, "mutation"])}
           terms={terms}
           pulse={step === 0 ? origin?.id ?? null : null}
+          series={meme.series}
         />
         <Timeline
           stamps={stamps}
           index={step}
           playing={playing}
+          phase={stamps[step] ? phaseOf(meme.series, utcDay(new Date(stamps[step]).toISOString()))?.phase : undefined}
           onIndex={setStep}
           onToggle={() => {
             if (!playing && step >= stamps.length - 1) {

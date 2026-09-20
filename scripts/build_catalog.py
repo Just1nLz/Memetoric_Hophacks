@@ -12,21 +12,28 @@ import duckdb
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "web" / "public" / "catalog.json"
+SIDE = ROOT / "web" / "public" / "new-memes.json"
 
 
-def resolve_parquet() -> list[str]:
+def firehose_dir() -> Path:
     candidates = [
         ROOT / "twitter-firehose",
         Path("/Users/lhh/Documents/Memetoric_Hophacks/twitter-firehose"),
     ]
     for d in candidates:
         if d.is_dir() and any(d.glob("tweets-*.parquet")):
-            return [
-                str(d / "tweets-00000*.parquet"),
-                str(d / "tweets-00004*.parquet"),
-                str(d / "tweets-00008*.parquet"),
-            ]
+            return d
     raise FileNotFoundError("twitter-firehose parquet not found next to the repo or in Documents")
+
+
+def resolve_parquet() -> list[str]:
+    """Evenly sample files across the dump so later weeks are in the trees, not only early August."""
+    files = sorted(firehose_dir().glob("tweets-*.parquet"))
+    want = 80
+    if len(files) <= want:
+        return [str(f) for f in files]
+    idxs = {round(i * (len(files) - 1) / (want - 1)) for i in range(want)}
+    return [str(files[i]) for i in sorted(idxs)]
 
 
 PARQUET = resolve_parquet()
@@ -87,7 +94,7 @@ MEMES = [
         "name": "Italian brainrot",
         "query": "tralalero · bombardiro · tung tung",
         "blurb": "Nonsense animal-sound lore (Tralalero, Bombardiro, Tung Tung) as a 2025–26 export.",
-        "pattern": r"tralalero|bombardiro|tung\s*tung|italian\s*brainrot|ballerina\s*cappuccina",
+        "pattern": r"tralalero|bombardiro|tung\s*tung|italian\s*brainrot|ballerina\s*cappuccina|chimpanzini|sahur",
     },
     {
         "slug": "mogging",
@@ -179,6 +186,167 @@ MEMES = [
         "query": "sigma",
         "blurb": "Lone-wolf grindset parody — sigma as a personality template that keeps getting recast.",
         "pattern": r"\bsigma\b",
+    },
+    {
+        "slug": "brainrot",
+        "name": "Brainrot",
+        "query": "brainrot / brain rot",
+        "blurb": "The umbrella insult for content that fries your feed — a family, not one joke.",
+        "pattern": r"\bbrain\s*rot\b",
+    },
+    {
+        "slug": "ai-slop",
+        "name": "AI slop",
+        "query": "ai slop / slop",
+        "blurb": "Low-effort generated sludge — calling out the feed when it turns into mush.",
+        "pattern": r"\bai\s*slop\b|\bslop\b",
+    },
+    {
+        "slug": "main-character",
+        "name": "Main character",
+        "query": "main character",
+        "blurb": "Treating life like a movie and everyone else as extras — the NPC counterpart.",
+        "pattern": r"main character",
+    },
+    {
+        "slug": "situationship",
+        "name": "Situationship",
+        "query": "situationship",
+        "blurb": "Not dating, not friends — the unlabeled mess as a punchline.",
+        "pattern": r"\bsituationship",
+    },
+    {
+        "slug": "backrooms",
+        "name": "Backrooms",
+        "query": "backrooms",
+        "blurb": "Liminal yellow-room horror that escaped creepypasta into everyday unease.",
+        "pattern": r"\bbackrooms\b",
+    },
+    {
+        "slug": "skill-issue",
+        "name": "Skill issue",
+        "query": "skill issue",
+        "blurb": "It's not the game, it's you — the dunk that turned into a worldview.",
+        "pattern": r"skill issue",
+    },
+    {
+        "slug": "down-bad",
+        "name": "Down bad",
+        "query": "down bad",
+        "blurb": "Thirst or despair with no dignity left — announcing it is the joke.",
+        "pattern": r"down bad",
+    },
+    {
+        "slug": "ohio",
+        "name": "Ohio",
+        "query": "in ohio / only in ohio",
+        "blurb": "Anywhere weird gets pinned on Ohio — the state's the punchline.",
+        "pattern": r"\bin ohio\b|\bonly in ohio\b",
+    },
+    {
+        "slug": "its-giving",
+        "name": "It's giving",
+        "query": "it's giving",
+        "blurb": "Vibe-as-verdict — name the energy instead of explaining the thought.",
+        "pattern": r"it'?s giving",
+    },
+    {
+        "slug": "the-voices",
+        "name": "The voices",
+        "query": "the voices",
+        "blurb": "Schizo-posting as a bit — the voices said to hit send.",
+        "pattern": r"\bthe voices\b",
+    },
+    {
+        "slug": "chronically-online",
+        "name": "Chronically online",
+        "query": "chronically online / terminally online",
+        "blurb": "Too much timeline, not enough outside — the diagnosis is the dunk.",
+        "pattern": r"chronically online|terminally online",
+    },
+    {
+        "slug": "talking-stage",
+        "name": "Talking stage",
+        "query": "talking stage",
+        "blurb": "Before situationship: texting with plausible deniability.",
+        "pattern": r"talking stage",
+    },
+    {
+        "slug": "nepo-baby",
+        "name": "Nepo baby",
+        "query": "nepo baby",
+        "blurb": "Inherited clout as an insult — the last name did the work.",
+        "pattern": r"nepo baby",
+    },
+    {
+        "slug": "roman-empire",
+        "name": "Roman empire",
+        "query": "roman empire",
+        "blurb": "The thing men think about daily — a format that jumped from history to anything.",
+        "pattern": r"roman empire",
+    },
+    {
+        "slug": "the-ick",
+        "name": "The ick",
+        "query": "the ick",
+        "blurb": "Sudden revulsion as a relationship mechanic — one weird move and it's over.",
+        "pattern": r"the ick",
+    },
+    {
+        "slug": "clanker",
+        "name": "Clanker",
+        "query": "clanker",
+        "blurb": "The 2025 slur for robots and AI — anti-bot energy as a meme insult.",
+        "pattern": r"\bclankers?\b",
+    },
+    {
+        "slug": "allegations",
+        "name": "Not beating the allegations",
+        "query": "not beating the allegations",
+        "blurb": "The receipts already won — denying it just proves the bit.",
+        "pattern": r"beating the allegations",
+    },
+    {
+        "slug": "understood-the-assignment",
+        "name": "Understood the assignment",
+        "query": "understood the assignment",
+        "blurb": "They got the brief and went feral — praise as a report card.",
+        "pattern": r"understood the assignment",
+    },
+    {
+        "slug": "looksmaxxing",
+        "name": "Looksmaxxing",
+        "query": "looksmaxx / looksmaxxing",
+        "blurb": "Treating your face like a skill tree — the mogging pipeline as a lifestyle.",
+        "pattern": r"looksmaxx",
+    },
+    {
+        "slug": "pick-me",
+        "name": "Pick me",
+        "query": "pick me",
+        "blurb": "Performing uniqueness for approval — the insult for trying too hard to be chosen.",
+        "pattern": r"\bpick me\b|\bpick-me\b",
+    },
+    {
+        "slug": "tweaking",
+        "name": "Tweaking",
+        "query": "tweaking / tweakin",
+        "blurb": "Acting unwell on the timeline — not drugs, just the bit.",
+        "pattern": r"\btweakin",
+    },
+    {
+        "slug": "no-cap",
+        "name": "No cap",
+        "query": "no cap",
+        "blurb": "I'm not lying — sincerity as a slang stamp that still mutates.",
+        "pattern": r"\bno cap\b",
+    },
+    {
+        "slug": "gigachad",
+        "name": "Gigachad",
+        "query": "gigachad / giga chad",
+        "blurb": "The sculpted yes-face of grindset parody — still the template for a W.",
+        "pattern": r"\bgigachad\b|\bgiga chad\b",
     },
 ]
 
@@ -311,11 +479,17 @@ def fetch_by_ids(con: duckdb.DuckDBPyConnection, ids: list[str]) -> list[dict]:
     return out
 
 
-def fetch_referrers(con: duckdb.DuckDBPyConnection, ids: list[str], limit: int = 160) -> list[dict]:
+def fetch_referrers(
+    con: duckdb.DuckDBPyConnection,
+    ids: list[str],
+    limit: int = 160,
+    pattern_sql: str | None = None,
+) -> list[dict]:
     want = [i for i in dict.fromkeys(ids) if i]
     if not want:
         return []
     out: list[dict] = []
+    extra = "AND regexp_matches(lower(body), ?)" if pattern_sql else ""
     for i in range(0, len(want), 48):
         chunk = want[i:i + 48]
         placeholders = ",".join(["?"] * len(chunk))
@@ -325,6 +499,7 @@ def fetch_referrers(con: duckdb.DuckDBPyConnection, ids: list[str], limit: int =
           FROM read_parquet(?, union_by_name=true)
           WHERE (reply_to_status_id IN ({placeholders}) OR quoting_id IN ({placeholders}))
             AND body NOT ILIKE 'RT @%'
+            {extra}
         ),
         latest AS (
           SELECT *, row_number() OVER (PARTITION BY id ORDER BY version DESC) AS rn
@@ -335,25 +510,51 @@ def fetch_referrers(con: duckdb.DuckDBPyConnection, ids: list[str], limit: int =
         ORDER BY like_count DESC
         LIMIT {limit}
         """
-        out.extend(_as_tweets(con.execute(sql, [PARQUET, *chunk, *chunk]).fetchall()))
+        params: list = [PARQUET, *chunk, *chunk]
+        if pattern_sql:
+            params.append(pattern_sql)
+        out.extend(_as_tweets(con.execute(sql, params).fetchall()))
     by_id = {t["id"]: t for t in out}
     return list(by_id.values())
 
 
-def assemble_family(con: duckdb.DuckDBPyConnection, pattern_sql: str) -> list[dict]:
-    """Seed meme hits, then pull posts that reply to / quote them and the parents they point at."""
-    seeds = fetch_meme_rows(con, pattern_sql, 200)[:80]
-    by_id = {t["id"]: t for t in seeds}
-    referrers = fetch_referrers(con, list(by_id), 180)
-    for t in referrers:
-        by_id.setdefault(t["id"], t)
-    missing = []
-    for t in list(by_id.values()):
-        for ref in (t.get("reply_to_status_id"), t.get("quoting_id")):
-            if ref and ref not in by_id:
-                missing.append(ref)
-    for t in fetch_by_ids(con, missing):
-        by_id.setdefault(t["id"], t)
+def assemble_family(con: duckdb.DuckDBPyConnection, pattern_sql: str, hops: int = 4) -> list[dict]:
+    """Grow reply/quote hops and keep later-month variants so lineages can stack generations."""
+    ranked = fetch_meme_rows(con, pattern_sql, 320 if hops <= 1 else 480)
+    by_likes = ranked[:140]
+    later = sorted(ranked, key=lambda t: t.get("created_at") or "")[-140:]
+    by_id = {t["id"]: t for t in [*by_likes, *later, *ranked]}
+    frontier = list(by_id)
+    cap = 360 if hops <= 1 else 560
+    for _hop in range(hops):
+        if len(by_id) >= cap or not frontier:
+            break
+        room = cap - len(by_id)
+        refs = fetch_referrers(con, frontier, min(80, room), pattern_sql)
+        new_ids: list[str] = []
+        for t in refs:
+            if t["id"] in by_id:
+                continue
+            by_id[t["id"]] = t
+            new_ids.append(t["id"])
+            if len(by_id) >= cap:
+                break
+        missing: list[str] = []
+        for tid in frontier:
+            t = by_id.get(tid)
+            if not t:
+                continue
+            for ref in (t.get("reply_to_status_id"), t.get("quoting_id")):
+                if ref and ref not in by_id:
+                    missing.append(ref)
+        for t in fetch_by_ids(con, missing[:160]):
+            if t["id"] in by_id:
+                continue
+            by_id[t["id"]] = t
+            new_ids.append(t["id"])
+            if len(by_id) >= cap:
+                break
+        frontier = new_ids
     return list(by_id.values())
 
 
@@ -443,11 +644,25 @@ def build_tree(tweets: list[dict], snapshots: dict[str, list[dict]], window_star
     origin = pick_origin(tweets, window_start)
     origin["parent_id"] = None
     origin["edge"] = "origin"
-    for t in tweets:
+
+    by_conv: dict[str, list[dict]] = defaultdict(list)
+    for t in chronological:
+        cid = t.get("conversation_id")
+        if cid:
+            by_conv[cid].append(t)
+    for t in chronological:
         if t["id"] == origin["id"] or t.get("parent_id"):
             continue
-        t["parent_id"] = origin["id"]
-        t["edge"] = "mutation"
+        cid = t.get("conversation_id")
+        thread = by_conv.get(cid or "", [])
+        earlier = [x for x in thread if (x.get("created_at") or "") < (t.get("created_at") or "") and x["id"] != t["id"]]
+        if earlier:
+            parent = earlier[-1]
+            t["parent_id"] = parent["id"]
+            t["edge"] = "reply"
+
+    detach_star_quotes(tweets, origin, by_id)
+    graft_mutations(tweets, origin, by_id)
 
     children: dict[str, list[str]] = defaultdict(list)
     for t in tweets:
@@ -545,6 +760,123 @@ def utc_day(created_at: str | None) -> str | None:
     return created_at[:10] if created_at else None
 
 
+def detach_star_quotes(tweets: list[dict], origin: dict, by_id: dict[str, dict], max_keep: int = 4) -> None:
+    """Keep real reply chains. Turn origin-star quotes (and overflow fans) into graftable mutations."""
+    for t in tweets:
+        if t["id"] == origin["id"]:
+            continue
+        if t.get("edge") == "mutation":
+            t["parent_id"] = None
+        elif t.get("edge") == "quote" and t.get("parent_id") == origin["id"]:
+            t["parent_id"] = None
+            t["edge"] = "mutation"
+
+    kids: dict[str, list[dict]] = defaultdict(list)
+    for t in tweets:
+        pid = t.get("parent_id")
+        if pid and pid in by_id and pid != t["id"]:
+            kids[pid].append(t)
+    for pid, group in kids.items():
+        extras = [k for k in group if k.get("edge") == "quote"]
+        extras.sort(key=lambda k: (k.get("like_count") or 0) + (k.get("views_count") or 0), reverse=True)
+        for k in extras[max_keep:]:
+            k["parent_id"] = None
+            k["edge"] = "mutation"
+
+
+def graft_mutations(tweets: list[dict], origin: dict, by_id: dict[str, dict]) -> None:
+    """Hang leftover posts on a similar earlier variant so mutations stack across the month.
+
+    Reply/quote edges stay. Everything else would otherwise star off the origin (gen 1).
+    Cap children per parent so popular posts do not flatten the tree again.
+    """
+    chronological = sorted(tweets, key=lambda t: (t.get("created_at") or "", t["id"]))
+    child_counts: dict[str, int] = defaultdict(int)
+    for t in tweets:
+        pid = t.get("parent_id")
+        if pid and pid in by_id and pid != t["id"]:
+            child_counts[pid] += 1
+
+    placed: list[dict] = []
+    max_children = 3
+    max_depth = 12
+    depths: dict[str, int] = {origin["id"]: 0}
+
+    def influence(t: dict) -> float:
+        return (
+            (t.get("like_count") or 0)
+            + (t.get("quote_count") or 0) * 3
+            + (t.get("reply_count") or 0)
+            + (t.get("views_count") or 0) / 80
+        )
+
+    for t in chronological:
+        if t["id"] == origin["id"]:
+            placed.append(t)
+            depths[t["id"]] = 0
+            continue
+        if t.get("parent_id") and t["parent_id"] in by_id and t["parent_id"] != t["id"]:
+            depths[t["id"]] = depths.get(t["parent_id"], 0) + 1
+            placed.append(t)
+            continue
+
+        t_dt = utc_dt(t.get("created_at"))
+        t_toks = t.get("tokens") or set()
+        best = None
+        best_score = 0.0
+        recent = placed[-48:] if len(placed) > 48 else placed
+        older_stars = sorted(placed, key=influence, reverse=True)[:12]
+        seen: set[str] = set()
+        candidates: list[dict] = []
+        for cand in [*recent, *older_stars]:
+            if cand["id"] in seen or cand["id"] == t["id"]:
+                continue
+            seen.add(cand["id"])
+            candidates.append(cand)
+
+        for cand in candidates:
+            crowded = child_counts[cand["id"]] >= max_children
+            sim = similarity(t_toks, cand.get("tokens") or set())
+            if sim < 0.04 and cand["id"] != origin["id"]:
+                continue
+            recency = 0.35
+            if t_dt:
+                c_dt = utc_dt(cand.get("created_at"))
+                if c_dt:
+                    days = (t_dt - c_dt).total_seconds() / 86400
+                    if days < 0:
+                        continue
+                    # Prefer parents from the last 1–2 weeks so the month forms a chain.
+                    recency = math.exp(-days / 8.0)
+            score = (0.55 * sim + 0.28 * recency + 0.17 * math.log10(1 + influence(cand)))
+            if crowded:
+                score *= 0.35
+            if cand["id"] == origin["id"]:
+                score *= 0.45
+            if score > best_score:
+                best_score = score
+                best = cand
+
+        parent = best
+        if parent is None:
+            roomy = [c for c in reversed(placed) if child_counts[c["id"]] < max_children and c["id"] != t["id"]]
+            parent = roomy[0] if roomy else origin
+        if depths.get(parent["id"], 0) >= max_depth - 1:
+            shallower = [
+                c for c in reversed(placed)
+                if c["id"] != t["id"]
+                and depths.get(c["id"], 0) < max_depth - 1
+                and child_counts[c["id"]] < max_children
+            ]
+            if shallower:
+                parent = shallower[0]
+        t["parent_id"] = parent["id"]
+        t["edge"] = "mutation"
+        child_counts[parent["id"]] += 1
+        depths[t["id"]] = depths.get(parent["id"], 0) + 1
+        placed.append(t)
+
+
 def pick_origin(tweets: list[dict], window_start: str) -> dict:
     """Sole origin: first two UTC hours of the window (inclusive), most likes + views."""
     from datetime import datetime, timedelta, timezone
@@ -588,7 +920,71 @@ def daily_series(tweets: list[dict], window_start: str) -> list[dict]:
     return [buckets[k] for k in sorted(buckets)]
 
 
-def main() -> None:
+def _ordered_memes(by_slug: dict[str, dict]) -> list[dict]:
+    seen: set[str] = set()
+    out: list[dict] = []
+    for m in MEMES:
+        if m["slug"] in by_slug:
+            out.append(by_slug[m["slug"]])
+            seen.add(m["slug"])
+    for slug, entry in by_slug.items():
+        if slug not in seen:
+            out.append(entry)
+    return out
+
+
+def _load_side() -> dict[str, dict]:
+    if not SIDE.exists():
+        return {}
+    try:
+        return {m["slug"]: m for m in json.loads(SIDE.read_text()).get("memes", [])}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def merge_write(catalog_meta: dict, new_entry: dict | None = None) -> dict:
+    """Rebuild catalog.json from HEAD + live file + sidecar so parallel rebuilds cannot drop new families."""
+    import subprocess
+
+    by: dict[str, dict] = {}
+    try:
+        committed = json.loads(subprocess.check_output(["git", "show", "HEAD:web/public/catalog.json"]))
+        for m in committed.get("memes", []):
+            by[m["slug"]] = m
+        for k in ("source", "window", "corpus_rows", "distinct_tweets", "slice_note"):
+            if committed.get(k) and not catalog_meta.get(k):
+                catalog_meta[k] = committed[k]
+    except Exception:
+        pass
+    if OUT.exists():
+        try:
+            live = json.loads(OUT.read_text())
+            for m in live.get("memes", []):
+                by[m["slug"]] = m
+            for k in ("source", "window", "corpus_rows", "distinct_tweets", "slice_note"):
+                if live.get(k):
+                    catalog_meta[k] = live[k]
+        except (json.JSONDecodeError, TypeError):
+            pass
+    side = _load_side()
+    if new_entry:
+        side[new_entry["slug"]] = new_entry
+        SIDE.write_text(json.dumps({"memes": list(side.values())}, indent=2))
+    by.update(side)
+    catalog_meta["memes"] = _ordered_memes(by)
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    OUT.write_text(json.dumps(catalog_meta, indent=2))
+    return catalog_meta
+
+
+def main(only_slugs: set[str] | None = None) -> None:
+    global PARQUET
+    if only_slugs:
+        files = sorted(firehose_dir().glob("tweets-*.parquet"))
+        want = 36
+        if len(files) > want:
+            idxs = {round(i * (len(files) - 1) / (want - 1)) for i in range(want)}
+            PARQUET = [str(files[i]) for i in sorted(idxs)]
     con = duckdb.connect()
     con.execute("SET memory_limit = '5GB'")
     catalog = {
@@ -596,12 +992,24 @@ def main() -> None:
         "window": {"start": "2026-08-17", "end": "2026-09-17"},
         "corpus_rows": 395_352_258,
         "distinct_tweets": 363_500_000,
-        "slice_note": "Edges are reply or quote of another post in the family. No like/repost graph in the firehose.",
+        "slice_note": "Trees sample the firehose across Aug 17–Sep 17. Reply/quote edges stay; later variants graft onto similar earlier posts so generations stack over the month.",
         "memes": [],
     }
-    for meme in MEMES:
+    prev: dict[str, dict] = {**_load_side()}
+    if OUT.exists():
+        try:
+            old = json.loads(OUT.read_text())
+            prev.update({m["slug"]: m for m in old.get("memes", [])})
+            for k in ("source", "window", "corpus_rows", "distinct_tweets", "slice_note"):
+                if old.get(k):
+                    catalog[k] = old[k]
+        except (json.JSONDecodeError, TypeError):
+            pass
+    catalog = merge_write(catalog)
+    run = [m for m in MEMES if only_slugs is None or m["slug"] in only_slugs]
+    for meme in run:
         print("extracting", meme["slug"], flush=True)
-        tweets = assemble_family(con, meme["pattern"])
+        tweets = assemble_family(con, meme["pattern"], hops=1)
         ids = [t["id"] for t in tweets]
         snaps = fetch_snapshots(con, ids)
         window_start = catalog["window"]["start"]
@@ -611,28 +1019,39 @@ def main() -> None:
         if first_day and first_day < window_start:
             first_day = window_start
         first = f"{first_day}T00:00:00Z" if first_day else None
-        catalog["memes"].append({
+        kept = prev.get(meme["slug"], {})
+        series_src = kept.get("series") or daily_series(tweets, window_start)
+        if kept.get("series") and len(kept["series"]) >= 28:
+            series = kept["series"]
+        else:
+            by_day = {p["t"]: p for p in series_src}
+            days = sorted(by_day)
+            coverage_end = days[-1] if days else catalog["window"]["end"]
+            series = fill_window_series(by_day, window_start, catalog["window"]["end"], coverage_end)
+        entry = {
             **{k: meme[k] for k in ("slug", "name", "query", "blurb")},
             "first_seen": first,
             "stats": stats,
-            "series": daily_series(tweets, window_start),
+            "series": series,
             "forest": forest,
-        })
-        print("  nodes", stats["nodes"], "roots", stats["roots"], "reply", stats["replies"], "quote", stats["quotes"], flush=True)
-        OUT.parent.mkdir(parents=True, exist_ok=True)
-        OUT.write_text(json.dumps(catalog, indent=2))
+        }
+        if kept.get("saturation"):
+            entry["saturation"] = kept["saturation"]
+        catalog = merge_write(catalog, entry)
+        print(
+            "  nodes", stats["nodes"], "roots", stats["roots"],
+            "reply", stats["replies"], "quote", stats["quotes"],
+            "mut", stats["mutations"], "max_gen", stats["max_generation"],
+            flush=True,
+        )
 
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(catalog, indent=2))
+    catalog = merge_write(catalog)
     print("wrote", OUT)
     print("meme_count", len(catalog["memes"]))
 
 
 def trend_parquet() -> list[str]:
-    for d in (ROOT / "twitter-firehose", Path("/Users/lhh/Documents/Memetoric_Hophacks/twitter-firehose")):
-        if d.is_dir() and any(d.glob("tweets-*.parquet")):
-            return [str(d / "tweets-*.parquet")]
-    return PARQUET
+    return [str(firehose_dir() / "tweets-*.parquet")]
 
 
 def annotate_saturation(points: list[dict]) -> list[dict]:
@@ -687,6 +1106,43 @@ def fill_window_series(by_day: dict[str, dict], start: str, end: str, coverage_e
         })
         day += timedelta(days=1)
     return annotate_saturation(out)
+
+
+def flatten_forest(forest: list[dict]) -> list[dict]:
+    out: list[dict] = []
+
+    def walk(node: dict) -> None:
+        kids = node.get("children") or []
+        row = {k: v for k, v in node.items() if k != "children"}
+        out.append(row)
+        for child in kids:
+            walk(child)
+
+    for root in forest:
+        walk(root)
+    return out
+
+
+def relink_catalog(catalog: dict) -> dict:
+    """Re-graft existing trees so mutations form deeper month-long lineages. No parquet scan."""
+    window_start = catalog.get("window", {}).get("start") or "2026-08-17"
+    for meme in catalog.get("memes", []):
+        tweets = flatten_forest(meme.get("forest") or [])
+        snaps = {t["id"]: t.get("snapshots") or [] for t in tweets}
+        forest, stats = build_tree(tweets, snaps, window_start)
+        meme["forest"] = forest
+        meme["stats"] = {**meme.get("stats", {}), **stats}
+        print(
+            "relink", meme.get("slug"),
+            "nodes", stats["nodes"], "mut", stats["mutations"],
+            "max_gen", stats["max_generation"],
+            flush=True,
+        )
+    catalog["slice_note"] = (
+        "Trees sample the firehose across Aug 17–Sep 17. Reply/quote edges stay; "
+        "later variants graft onto similar earlier posts so generations stack over the month."
+    )
+    return catalog
 
 
 def refresh_month_trends(catalog: dict) -> dict:
@@ -761,5 +1217,14 @@ if __name__ == "__main__":
         catalog = refresh_month_trends(catalog)
         OUT.write_text(json.dumps(catalog, indent=2))
         print("wrote", OUT)
+    elif "--relink" in sys.argv:
+        catalog = json.loads(OUT.read_text())
+        catalog = relink_catalog(catalog)
+        OUT.write_text(json.dumps(catalog, indent=2))
+        print("wrote", OUT)
+    elif "--slugs" in sys.argv:
+        i = sys.argv.index("--slugs")
+        slugs = {s.strip() for s in sys.argv[i + 1].split(",") if s.strip()}
+        main(slugs)
     else:
         main()

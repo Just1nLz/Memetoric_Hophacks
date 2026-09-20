@@ -1,6 +1,76 @@
 import { utcDay } from "./format";
 import type { DayPoint, TweetNode } from "./types";
 
+export type DayMutations = {
+  reply: number;
+  quote: number;
+  mutation: number;
+  origin: number;
+  total: number;
+};
+
+export const PHASE_COLOR: Record<string, string> = {
+  rising: "#d6ff4b",
+  peak: "#fff36a",
+  decline: "#e8d27a",
+  saturated: "#ff8a5b",
+  uncovered: "#4a4a46",
+  unknown: "#9a988c",
+};
+
+export function mutationsByDay(nodes: TweetNode[]): Map<string, DayMutations> {
+  const out = new Map<string, DayMutations>();
+  for (const n of nodes) {
+    const day = utcDay(n.created_at);
+    if (!day) continue;
+    const row = out.get(day) ?? { reply: 0, quote: 0, mutation: 0, origin: 0, total: 0 };
+    if (n.edge === "reply" || n.edge === "quote" || n.edge === "mutation" || n.edge === "origin") {
+      row[n.edge] += 1;
+      row.total += 1;
+    }
+    out.set(day, row);
+  }
+  return out;
+}
+
+export function emptyMutations(): DayMutations {
+  return { reply: 0, quote: 0, mutation: 0, origin: 0, total: 0 };
+}
+
+/** Consecutive phase runs for the lifecycle ribbon. */
+export function phaseRuns(series: DayPoint[]): { phase: string; start: string; end: string; n: number }[] {
+  const runs: { phase: string; start: string; end: string; n: number }[] = [];
+  for (const s of series) {
+    const phase = s.phase ?? "unknown";
+    const last = runs.at(-1);
+    if (last && last.phase === phase) {
+      last.end = s.t;
+      last.n += 1;
+    } else {
+      runs.push({ phase, start: s.t, end: s.t, n: 1 });
+    }
+  }
+  return runs;
+}
+
+export function lifecycleSummary(series: DayPoint[]) {
+  const live = series.filter((s) => s.coverage !== false);
+  const peak = live.find((s) => s.phase === "peak") ?? null;
+  const satFrom = live.find((s) => s.phase === "saturated") ?? null;
+  const last = live.at(-1) ?? null;
+  const afterPeak = peak ? live.filter((s) => s.t > peak.t) : [];
+  const afterVol = afterPeak.reduce((n, s) => n + s.tweets, 0);
+  const total = live.reduce((n, s) => n + s.tweets, 0) || 1;
+  return {
+    peakDay: peak?.t ?? null,
+    peakTweets: peak?.tweets ?? 0,
+    saturatedFrom: satFrom?.t ?? null,
+    lastSat: last?.saturation ?? null,
+    lastPhase: last?.phase ?? "unknown",
+    spentAfterPeak: afterVol / total,
+  };
+}
+
 export type SaturationPhase = "rising" | "peak" | "decline" | "saturated" | "uncovered" | "unknown";
 
 export function phaseOf(series: DayPoint[], day: string | null | undefined): DayPoint | null {

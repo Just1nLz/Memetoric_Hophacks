@@ -19,7 +19,7 @@ export function flatten(forest: TweetNode[]): TweetNode[] {
 export function layoutForest(forest: TweetNode[]): Map<string, LaidOut> {
   const positions = new Map<string, LaidOut>();
   const dx = 132;
-  const dy = 172;
+  const dy = 148;
   let x = 88;
 
   const layout = (node: TweetNode, depth: number): number => {
@@ -65,38 +65,71 @@ export function necessity(node: TweetNode): number {
   return attn * edge;
 }
 
+function addAncestors(keep: Set<string>, byId: Map<string, TweetNode>): void {
+  for (const id of [...keep]) {
+    let cur = byId.get(id);
+    while (cur?.parent_id) {
+      keep.add(cur.parent_id);
+      cur = byId.get(cur.parent_id);
+    }
+  }
+}
+
 /**
- * Compact consumer tree: origin + the highest-necessity posts and the path back to origin.
- * Researcher view should pass the forest through unchanged.
+ * Compact consumer tree: a month-long spine of mutations plus a few high-reach branches.
+ * Never collapse later posts back onto the origin (that reads as only two generations).
  */
-export function pruneConsumerForest(forest: TweetNode[], keepHighlights = 8, maxNodes = 14): TweetNode[] {
+export function pruneConsumerForest(forest: TweetNode[], keepHighlights = 10, maxNodes = 40): TweetNode[] {
   if (forest.length === 0) return [];
   const raw = flatten(forest);
   const byId = new Map(raw.map((n) => [n.id, n]));
   const origin = forest[0];
-  const ranked = raw
-    .filter((n) => n.id !== origin.id)
-    .sort((a, b) => necessity(b) - necessity(a));
+  const rest = raw.filter((n) => n.id !== origin.id);
   const keep = new Set<string>([origin.id]);
-  for (const n of ranked.slice(0, keepHighlights)) {
-    let cur: TweetNode | undefined = n;
-    while (cur && !keep.has(cur.id)) {
-      keep.add(cur.id);
-      cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
-    }
+
+  const timed = [...rest].sort((a, b) => ts(a.created_at) - ts(b.created_at));
+  const times = timed.map((n) => ts(n.created_at)).filter((t) => t > 0);
+  const t0 = times[0] ?? ts(origin.created_at);
+  const t1 = times[times.length - 1] ?? t0;
+  const span = Math.max(t1 - t0, 1);
+  const bands = 12;
+  const spine = new Set<string>([origin.id]);
+  for (let i = 0; i < bands; i++) {
+    const a = t0 + (span * i) / bands;
+    const b = t0 + (span * (i + 1)) / bands + (i === bands - 1 ? 1 : 0);
+    const inBand = timed.filter((n) => {
+      const t = ts(n.created_at);
+      return t >= a && t < b;
+    });
+    if (!inBand.length) continue;
+    inBand.sort((a, b) => (b.generation || 0) - (a.generation || 0) || necessity(b) - necessity(a));
+    spine.add(inBand[0].id);
+    keep.add(inBand[0].id);
   }
+
+  const ranked = [...rest].sort((a, b) => necessity(b) - necessity(a));
+  for (const n of ranked.slice(0, keepHighlights)) keep.add(n.id);
+  for (const n of [...raw].sort((a, b) => (b.generation || 0) - (a.generation || 0)).slice(0, 8)) {
+    keep.add(n.id);
+    spine.add(n.id);
+  }
+  addAncestors(keep, byId);
+  addAncestors(spine, byId);
+
   if (keep.size > maxNodes) {
-    const extras = ranked.filter((n) => keep.has(n.id) && n.id !== origin.id);
+    const extras = ranked.filter((n) => keep.has(n.id) && !spine.has(n.id));
     for (let i = extras.length - 1; i >= 0 && keep.size > maxNodes; i--) {
       const id = extras[i].id;
       const kids = raw.filter((n) => n.parent_id === id && keep.has(n.id));
-      if (kids.length === 0 && id !== origin.id) keep.delete(id);
+      if (kids.length === 0) keep.delete(id);
     }
+    addAncestors(keep, byId);
   }
+
   const clones = new Map<string, TweetNode>();
   for (const n of raw) {
     if (!keep.has(n.id)) continue;
-    clones.set(n.id, { ...n, children: [], parent_id: n.parent_id && keep.has(n.parent_id) ? n.parent_id : null });
+    clones.set(n.id, { ...n, children: [] });
   }
   const root = clones.get(origin.id);
   if (!root) return forest;
@@ -104,12 +137,19 @@ export function pruneConsumerForest(forest: TweetNode[], keepHighlights = 8, max
   root.edge = "origin";
   for (const n of clones.values()) {
     if (n.id === root.id) continue;
-    const pid = n.parent_id && clones.has(n.parent_id) ? n.parent_id : root.id;
+    let pid = byId.get(n.id)?.parent_id ?? null;
+    while (pid && !clones.has(pid)) pid = byId.get(pid)?.parent_id ?? null;
+    if (!pid || !clones.has(pid)) {
+      const earlier = [...clones.values()]
+        .filter((c) => c.id !== n.id && ts(c.created_at) < ts(n.created_at))
+        .sort((a, b) => ts(b.created_at) - ts(a.created_at));
+      pid = earlier[0]?.id ?? root.id;
+    }
     n.parent_id = pid;
     clones.get(pid)!.children.push(n);
   }
   for (const n of clones.values()) {
-    n.children.sort((a, b) => necessity(b) - necessity(a));
+    n.children.sort((a, b) => ts(a.created_at) - ts(b.created_at));
   }
   retagGenerations(root, 0);
   return [root];
@@ -208,15 +248,130 @@ export function unifyForest(
   origin.edge = "origin";
   origin.edge_label = null;
   origin.edge_detail = null;
+  const originMs = ts(origin.created_at);
+  const detach = (n: TweetNode) => {
+    if (!n.parent_id) return;
+    const parent = clones.get(n.parent_id);
+    if (parent) parent.children = parent.children.filter((c) => c.id !== n.id);
+    n.parent_id = null;
+    if (n.edge === "quote" || n.edge === "reply") n.edge = "mutation";
+  };
+  // Keep already-stacked chains. Break origin fans: a month of replies/quotes
+  // hanging off day-0 is two generations, not a lineage.
   for (const n of clones.values()) {
-    if (n.id === origin.id || n.parent_id) continue;
-    n.parent_id = origin.id;
-    if (n.edge === "origin") n.edge = "mutation";
-    origin.children.push(n);
+    if (n.id === origin.id || n.parent_id !== origin.id) continue;
+    const ageDays = originMs ? (ts(n.created_at) - originMs) / 86_400_000 : 0;
+    if (n.edge === "reply" && ageDays <= 1.5) continue;
+    detach(n);
   }
+  const byParent = new Map<string, TweetNode[]>();
+  for (const n of clones.values()) {
+    if (!n.parent_id || n.parent_id === origin.id) continue;
+    const list = byParent.get(n.parent_id) ?? [];
+    list.push(n);
+    byParent.set(n.parent_id, list);
+  }
+  for (const kids of byParent.values()) {
+    const ranked = [...kids].sort((a, b) => influence(b) - influence(a));
+    for (const extra of ranked.slice(5)) detach(extra);
+  }
+  graftMutationLineage(clones, origin);
   origin.children.sort((a, b) => ts(a.created_at) - ts(b.created_at));
   retagGenerations(origin, 0);
   return [origin];
+}
+
+const STOP = new Set([
+  "the", "and", "for", "you", "that", "this", "with", "are", "was", "have",
+  "just", "from", "they", "your", "what", "when", "will", "about", "like",
+  "https", "http", "www", "com", "lol", "its", "not", "but", "all", "can",
+]);
+
+function bodyTokens(body: string): Set<string> {
+  const out = new Set<string>();
+  for (const t of (body || "").toLowerCase().match(/[a-z0-9']+/g) ?? []) {
+    if (t.length > 2 && !STOP.has(t)) out.add(t);
+  }
+  return out;
+}
+
+function tokenSim(a: Set<string>, b: Set<string>): number {
+  if (!a.size || !b.size) return 0;
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter += 1;
+  return inter / Math.sqrt(a.size * b.size);
+}
+
+/** Attach parentless posts to a similar earlier variant so the month stacks generations. */
+function graftMutationLineage(clones: Map<string, TweetNode>, origin: TweetNode): void {
+  const chronological = [...clones.values()].sort((a, b) => {
+    const d = ts(a.created_at) - ts(b.created_at);
+    return d !== 0 ? d : a.id.localeCompare(b.id);
+  });
+  const childCounts = new Map<string, number>();
+  for (const n of chronological) {
+    if (n.parent_id && clones.has(n.parent_id) && n.parent_id !== n.id) {
+      childCounts.set(n.parent_id, (childCounts.get(n.parent_id) || 0) + 1);
+    }
+  }
+  const toks = new Map<string, Set<string>>();
+  for (const n of chronological) toks.set(n.id, bodyTokens(n.body));
+  const placed: TweetNode[] = [];
+  const maxChildren = 3;
+
+  for (const n of chronological) {
+    if (n.id === origin.id) {
+      placed.push(n);
+      continue;
+    }
+    const parentOk = Boolean(n.parent_id && clones.has(n.parent_id) && n.parent_id !== n.id);
+    if (parentOk && n.parent_id !== origin.id) {
+      placed.push(n);
+      continue;
+    }
+    const originMs = ts(origin.created_at);
+    const ageDays = originMs ? (ts(n.created_at) - originMs) / 86_400_000 : 0;
+    if (parentOk && n.parent_id === origin.id && n.edge === "reply" && ageDays <= 1.5) {
+      placed.push(n);
+      continue;
+    }
+
+    const tTok = toks.get(n.id) ?? new Set<string>();
+    const tMs = ts(n.created_at);
+    const recent = placed.slice(-16);
+    const stars = [...placed].sort((a, b) => influence(b) - influence(a)).slice(0, 8);
+    const seen = new Set<string>();
+    let best: TweetNode | null = null;
+    let bestScore = 0;
+
+    for (const cand of [...recent, ...stars]) {
+      if (seen.has(cand.id) || cand.id === n.id) continue;
+      seen.add(cand.id);
+      const sim = tokenSim(tTok, toks.get(cand.id) ?? new Set());
+      let recency = 0.35;
+      const cMs = ts(cand.created_at);
+      if (tMs && cMs) {
+        const days = (tMs - cMs) / 86_400_000;
+        if (days < 0) continue;
+        recency = Math.exp(-days / 5);
+      }
+      let score = 0.3 * sim + 0.55 * recency + 0.15 * Math.log10(1 + influence(cand));
+      if ((childCounts.get(cand.id) || 0) >= maxChildren) score *= 0.25;
+      if (cand.id === origin.id) score *= 0.15;
+      if (recent.length && cand.id === recent[recent.length - 1]?.id) score += 0.2;
+      if (score > bestScore) {
+        bestScore = score;
+        best = cand;
+      }
+    }
+
+    const parent = best ?? origin;
+    n.parent_id = parent.id;
+    if (n.edge === "origin") n.edge = "mutation";
+    parent.children.push(n);
+    childCounts.set(parent.id, (childCounts.get(parent.id) || 0) + 1);
+    placed.push(n);
+  }
 }
 
 function keepOnlyMemePosts(forest: TweetNode[], name: string, query: string): TweetNode[] {

@@ -6,8 +6,10 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import type { EdgeKind, LaidOut, TweetNode } from "../types";
+import type { DayPoint, EdgeKind, LaidOut, TweetNode } from "../types";
+import { utcDay } from "../format";
 import { edgeAnnotation, influence, layoutForest, radius } from "../layout";
+import { PHASE_COLOR, phaseOf } from "../saturation";
 
 const EDGE_COLOR: Record<EdgeKind, string> = {
   origin: "#d6ff4b",
@@ -24,13 +26,14 @@ type Props = {
   edgeFilter: Set<EdgeKind>;
   terms: string[];
   pulse?: string | null;
+  series?: DayPoint[];
 };
 
 const SCALE_MAX = 2.2;
 const CHIP_W = 136;
 const CHIP_H = 36;
 
-export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter, pulse = null }: Props) {
+export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter, pulse = null, series = [] }: Props) {
   const wrap = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<string | null>(null);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
@@ -328,17 +331,19 @@ export function TreeCanvas({ forest, visible, selected, onSelect, edgeFilter, pu
               const allowed = n.edge === "origin" || edgeFilter.has(n.edge);
               const r = radius(n);
               const active = selected === n.id || hover === n.id;
+              const sat = phaseOf(series, utcDay(n.created_at));
+              const satPhase = sat?.phase ?? "unknown";
               return (
                 <g
                   key={n.id}
                   transform={`translate(${item.x},${item.y})`}
-                  className={`node ${alive && allowed ? "on" : "off"} ${active ? "active" : ""} ${pulse === n.id ? "pulse" : ""}`}
+                  className={`node sat-${satPhase} ${alive && allowed ? "on" : "off"} ${active ? "active" : ""} ${pulse === n.id ? "pulse" : ""}`}
                   onMouseEnter={() => setHover(n.id)}
                   onMouseLeave={() => setHover(null)}
                   onClick={() => onSelect(n.id)}
                   style={{ cursor: "pointer" }}
                 >
-                  <circle r={r + 8} className="halo" />
+                  <circle r={r + 10} className="halo sat-ring" stroke={PHASE_COLOR[satPhase] ?? PHASE_COLOR.unknown} />
                   <circle r={r} className={`dot ${n.edge}`} filter={active ? "url(#glow)" : undefined} />
                   {n.edge === "origin" && (
                     <text x={0} y={-r - 10} textAnchor="middle" className="origin-mark">

@@ -1,12 +1,15 @@
+import { phaseLabel } from "../saturation";
+
 type Props = {
   stamps: number[];
   index: number;
   playing: boolean;
+  phase?: string;
   onIndex: (i: number) => void;
   onToggle: () => void;
 };
 
-export function Timeline({ stamps, index, playing, onIndex, onToggle }: Props) {
+export function Timeline({ stamps, index, playing, phase, onIndex, onToggle }: Props) {
   const t = stamps[index];
   const label = t
     ? new Date(t).toLocaleString(undefined, {
@@ -35,7 +38,7 @@ export function Timeline({ stamps, index, playing, onIndex, onToggle }: Props) {
         <div className="fill" style={{ width: `${pct}%` }} />
       </div>
       <div className="time-readout">
-        <span className="kicker">Timestep (UTC)</span>
+        <span className="kicker">Timestep (UTC){phase ? ` · ${phaseLabel(phase)}` : ""}</span>
         <strong>
           {index + 1} / {stamps.length} · {label}
         </strong>
