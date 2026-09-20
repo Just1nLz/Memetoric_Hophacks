@@ -1249,9 +1249,22 @@ tspan.meme-hit {
 
 .origin-mark {
   fill: var(--lime);
-  font-size: 11px;
+  font-size: 22px;
+  font-weight: 700;
+  font-family: "IBM Plex Mono", monospace;
+  letter-spacing: 0.22em;
+  paint-order: stroke fill;
+  stroke: #0c0d0b;
+  stroke-width: 5px;
+  stroke-linejoin: round;
+}
+
+.origin-mark-in {
+  fill: #14160f;
+  font-weight: 700;
   font-family: "IBM Plex Mono", monospace;
   letter-spacing: 0.14em;
+  pointer-events: none;
 }
 
 .rel-mark {

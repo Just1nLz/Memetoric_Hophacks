@@ -50,7 +50,7 @@ type Props = {
 
 const SCALE_MAX = 2.8;
 const READABLE_SCALE = 1.18;
-const OPENING_MAX_GEN = 2;
+const OPENING_MAX_GEN = 5;
 const CHIP_W = 188;
 const CHIP_H = 38;
 
@@ -412,9 +412,21 @@ export const TreeCanvas = forwardRef<LineageCanvasHandle, Props>(function TreeCa
                   <circle r={r + 12} className="halo sat-ring" stroke={PHASE_COLOR[satPhase] ?? PHASE_COLOR.unknown} />
                   <NodeMark kind={n.edge} r={r} active={active} />
                   {n.edge === "origin" && (
-                    <text x={0} y={-r - 14} textAnchor="middle" className="origin-mark">
-                      ORIGIN
-                    </text>
+                    <>
+                      <text
+                        x={0}
+                        y={1}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        className="origin-mark-in"
+                        fontSize={Math.max(9, Math.min(15, r * 0.42))}
+                      >
+                        ORIGIN
+                      </text>
+                      <text x={0} y={r + 28} textAnchor="middle" className="origin-mark">
+                        ORIGIN
+                      </text>
+                    </>
                   )}
                   {named && n.edge !== "origin" && (
                     <text x={0} y={r + 16} textAnchor="middle" className={`rel-mark ${n.edge}`}>
@@ -494,7 +506,7 @@ function viewForGenerations(
   minX -= 56;
 
   const minY = TREE_TOP - 40;
-  const maxY = TREE_TOP + maxGen * TREE_DY + TREE_DY * 0.48;
+  const maxY = TREE_TOP + maxGen * TREE_DY + TREE_DY * 0.16;
 
   const padX = 48;
   const padTop = 28;
