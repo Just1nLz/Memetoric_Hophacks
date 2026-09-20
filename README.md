@@ -9,6 +9,6 @@ python scripts/build_catalog.py   # DuckDB slice → web/public/catalog.json
 cd web && npm install && npm run dev
 ```
 
-Open [http://localhost:5173/](https://github.com/Just1nLz/Memetoric_Hophacks) to tryout the website
+Open https://just1nlz.github.io/Memetoric_Hophacks/ to tryout the website
 
 Optional API (GrokBot chat): `XAI_API_KEY=… uvicorn backend.app:app --reload --app-dir . --port 8002` (serves `/api/catalog` and `/api/grok/explain`).
