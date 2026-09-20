@@ -10,7 +10,7 @@ import {
 } from "react";
 import type { DayPoint, EdgeKind, LaidOut, TweetNode } from "../types";
 import { utcDay } from "../format";
-import { TREE_DX, TREE_DY, TREE_TOP, edgeAnnotation, influence, isUnaryTree, layoutForest, layoutLineagePath, radius } from "../layout";
+import { TREE_DX, TREE_DY, TREE_TOP, edgeAnnotation, influence, layoutForest, radius } from "../layout";
 import { PHASE_COLOR, phaseOf } from "../saturation";
 import { NodeTooltip } from "./NodeTooltip";
 
@@ -54,10 +54,6 @@ const READABLE_SCALE = 1.18;
 const OPENING_MAX_GEN = 5;
 const CHIP_W = 188;
 const CHIP_H = 38;
-/** Keep a play annotation until two more generations have animated. */
-const PLAY_CHIP_GENS = 2;
-/** One chip at a time so a bushy generation does not stack labels. */
-const PLAY_CHIP_MAX = 1;
 
 export const TreeCanvas = forwardRef<LineageCanvasHandle, Props>(function TreeCanvas(
   {
@@ -81,8 +77,6 @@ export const TreeCanvas = forwardRef<LineageCanvasHandle, Props>(function TreeCa
   ref,
 ) {
   const wrap = useRef<HTMLDivElement>(null);
-  const chipBornGen = useRef(new Map<string, number>());
-  const wasPlaying = useRef(false);
   const [hover, setHover] = useState<string | null>(null);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
@@ -95,12 +89,11 @@ export const TreeCanvas = forwardRef<LineageCanvasHandle, Props>(function TreeCa
   const onViewChangeRef = useRef(onViewChange);
   onViewChangeRef.current = onViewChange;
 
-  const laid = useMemo(() => (isUnaryTree(forest) ? layoutLineagePath(forest) : layoutForest(forest)), [forest]);
-  const unary = useMemo(() => isUnaryTree(forest), [forest]);
+  const laid = useMemo(() => layoutForest(forest), [forest]);
   const nodes = [...laid.values()];
   const maxX = nodes.reduce((m, n) => Math.max(m, n.x), 400);
   const maxY = nodes.reduce((m, n) => Math.max(m, n.y), 300);
-  const width = maxX + (unary ? 280 : 140);
+  const width = maxX + 140;
   const height = maxY + 120;
   const minScale = fitScale(
     viewSize.w || wrap.current?.clientWidth || 0,
@@ -154,9 +147,7 @@ export const TreeCanvas = forwardRef<LineageCanvasHandle, Props>(function TreeCa
     if (!el || current.length === 0) return false;
     const viewW = el.clientWidth || 1200;
     const viewH = el.clientHeight || 680;
-    const framed = unary
-      ? viewForPathOpening(current, viewW, viewH, OPENING_MAX_GEN)
-      : viewForGenerations(current, viewW, viewH, OPENING_MAX_GEN);
+    const framed = viewForGenerations(current, viewW, viewH, OPENING_MAX_GEN);
     applyView(framed.scale, framed.pan);
     if (el.clientWidth && el.clientHeight) setViewSize({ w: el.clientWidth, h: el.clientHeight });
     return true;
@@ -270,57 +261,19 @@ export const TreeCanvas = forwardRef<LineageCanvasHandle, Props>(function TreeCa
   };
 
   const pulseIds = pulse instanceof Set ? pulse : pulse ? new Set([pulse]) : new Set<string>();
-  let maxVisibleGen = 0;
-  for (const item of nodes) {
-    if (!visible.has(item.node.id)) continue;
-    maxVisibleGen = Math.max(maxVisibleGen, item.node.generation || 0);
-  }
-
-  if (playing && !wasPlaying.current) chipBornGen.current.clear();
-  if (!playing) chipBornGen.current.clear();
-  wasPlaying.current = playing;
-  if (playing) {
-    const live = new Set<string>();
-    for (const { from, to, key } of links) {
-      if (!visible.has(from.node.id) || !visible.has(to.node.id) || !edgeFilter.has(to.node.edge)) continue;
-      live.add(key);
-    }
-    for (const [key, born] of [...chipBornGen.current.entries()]) {
-      if (!live.has(key) || maxVisibleGen >= born + PLAY_CHIP_GENS) chipBornGen.current.delete(key);
-    }
-    if (chipBornGen.current.size < PLAY_CHIP_MAX) {
-      let bestKey: string | null = null;
-      let bestScore = -1;
-      for (const { from, to, key } of links) {
-        if (!live.has(key) || chipBornGen.current.has(key)) continue;
-        if (!pulseIds.has(to.node.id)) continue;
-        const score = playChipScore(from.node, to.node, true);
-        if (score > bestScore) {
-          bestScore = score;
-          bestKey = key;
-        }
-      }
-      if (bestKey) chipBornGen.current.set(bestKey, maxVisibleGen);
-    }
-  }
-
-  const chips = placeChips({
-    links,
-    visible,
-    edgeFilter,
-    selected,
-    hoverEdge,
-    hoverNode: hover,
-    scale,
-    pan,
-    viewW: viewSize.w || wrap.current?.clientWidth || 0,
-    viewH: viewSize.h || wrap.current?.clientHeight || 0,
-    alongPath: unary,
-    play: playing
-      ? { born: chipBornGen.current, maxGen: maxVisibleGen, keepGens: PLAY_CHIP_GENS, pulseIds }
-      : null,
-  });
-  const blinkKeys = playing ? new Set(chips.map((c) => c.key)) : new Set<string>();
+  const chips = playing
+    ? []
+    : placeChips({
+        links,
+        visible,
+        edgeFilter,
+        selected,
+        hoverEdge,
+        hoverNode: hover,
+        scale,
+        viewW: viewSize.w || wrap.current?.clientWidth || 0,
+        viewH: viewSize.h || wrap.current?.clientHeight || 0,
+      });
   const gens = [...new Set(nodes.map((n) => n.node.generation || 0))].sort((a, b) => a - b);
   const beadR = Math.min(9, Math.max(4.2, 6 / scale));
   const hoverItem = hover ? laid.get(hover) : null;
@@ -371,31 +324,20 @@ export const TreeCanvas = forwardRef<LineageCanvasHandle, Props>(function TreeCa
                 </feMerge>
               </filter>
             </defs>
-            {unary
-              ? nodes.map((item) => (
-                  <text
-                    key={`gen-${item.node.id}`}
-                    x={Math.max(16, item.x - 96)}
-                    y={item.y + 4}
-                    className="gen-band"
-                  >
-                    GEN {item.node.generation || 0}
-                  </text>
-                ))
-              : gens.map((g) => {
-                  const rowXs = nodes.filter((n) => (n.node.generation || 0) === g).map((n) => n.x);
-                  const x = (rowXs.length ? Math.min(...rowXs) : 120) - 72;
-                  return (
-                    <text
-                      key={`gen-${g}`}
-                      x={Math.max(16, x)}
-                      y={TREE_TOP + g * TREE_DY + 4}
-                      className="gen-band"
-                    >
-                      GEN {g}
-                    </text>
-                  );
-                })}
+            {gens.map((g) => {
+              const rowXs = nodes.filter((n) => (n.node.generation || 0) === g).map((n) => n.x);
+              const x = (rowXs.length ? Math.min(...rowXs) : 120) - 72;
+              return (
+                <text
+                  key={`gen-${g}`}
+                  x={Math.max(16, x)}
+                  y={TREE_TOP + g * TREE_DY + 4}
+                  className="gen-band"
+                >
+                  GEN {g}
+                </text>
+              );
+            })}
             {links.map(({ from, to, key }) => {
               const alive = visible.has(to.node.id) && visible.has(from.node.id);
               const allowed = edgeFilter.has(to.node.edge);
@@ -403,7 +345,7 @@ export const TreeCanvas = forwardRef<LineageCanvasHandle, Props>(function TreeCa
               const y1 = from.y + radius(from.node) + 4;
               const y2 = to.y - radius(to.node) - 6;
               const d = cubic(from.x, y1, to.x, y2);
-              const hot = hoverEdge === key || selected === to.node.id || blinkKeys.has(key);
+              const hot = hoverEdge === key || selected === to.node.id;
               const dim =
                 related != null && !related.has(from.node.id) && !related.has(to.node.id);
               const inferred = to.node.edge === "mutation";
@@ -411,7 +353,7 @@ export const TreeCanvas = forwardRef<LineageCanvasHandle, Props>(function TreeCa
                 <g key={key} className={`link-group ${show ? "on" : "off"} ${dim ? "dim" : ""}`}>
                   <path
                     d={d}
-                    className={`link ${to.node.edge} ${inferred ? "inferred" : "strong"} ${blinkKeys.has(key) ? "play-blink" : ""}`}
+                    className={`link ${to.node.edge} ${inferred ? "inferred" : "strong"}`}
                     stroke={EDGE_COLOR[to.node.edge]}
                   />
                   <path
@@ -503,7 +445,7 @@ export const TreeCanvas = forwardRef<LineageCanvasHandle, Props>(function TreeCa
         {chips.map((chip) => (
           <div
             key={chip.key}
-            className={`edge-chip ${chip.kind} ${chip.mode} ${chip.hot ? "hot" : ""} ${chip.blink ? "play-blink" : ""} ${chip.onEdge ? "on-edge" : ""}`}
+            className={`edge-chip ${chip.kind} ${chip.mode} ${chip.hot ? "hot" : ""}`}
             style={{ left: chip.x, top: chip.y }}
             onMouseEnter={() => setHoverEdge(chip.key)}
             onMouseLeave={() => setHoverEdge(null)}
@@ -588,36 +530,6 @@ function viewForGenerations(
   };
 }
 
-function viewForPathOpening(
-  nodes: LaidOut[],
-  viewW: number,
-  viewH: number,
-  count: number,
-): { scale: number; pan: { x: number; y: number } } {
-  const ordered = [...nodes].sort((a, b) => a.y - b.y);
-  const take = ordered.slice(0, Math.max(1, Math.min(ordered.length, count + 1)));
-  const last = take[take.length - 1];
-  const minX = 280 - 110;
-  const maxX = 280 + 220;
-  const minY = TREE_TOP - 40;
-  const maxY = (last?.y ?? TREE_TOP) + TREE_DY * 0.2;
-  const padX = 48;
-  const padTop = 28;
-  const padBottom = 36;
-  const worldW = Math.max(maxX - minX, TREE_DX * 2);
-  const worldH = Math.max(maxY - minY, TREE_DY * 2);
-  const sx = (viewW - padX * 2) / worldW;
-  const sy = (viewH - padTop - padBottom) / worldH;
-  const scale = Math.min(SCALE_MAX, Math.max(0.45, Math.min(sx, sy)));
-  return {
-    scale,
-    pan: {
-      x: viewW / 2 - ((minX + maxX) / 2) * scale,
-      y: padTop - minY * scale,
-    },
-  };
-}
-
 function cubic(x1: number, y1: number, x2: number, y2: number): string {
   const my = (y1 + y2) / 2;
   return `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
@@ -633,8 +545,6 @@ type Chip = {
   y: number;
   mode: "full" | "dot";
   hot: boolean;
-  blink: boolean;
-  onEdge: boolean;
 };
 
 function placeChips(args: {
@@ -645,51 +555,33 @@ function placeChips(args: {
   hoverEdge: string | null;
   hoverNode: string | null;
   scale: number;
-  pan: { x: number; y: number };
   viewW: number;
   viewH: number;
-  alongPath?: boolean;
-  play?: {
-    born: Map<string, number>;
-    maxGen: number;
-    keepGens: number;
-    pulseIds: ReadonlySet<string>;
-  } | null;
 }): Chip[] {
-  const { links, visible, edgeFilter, selected, hoverEdge, hoverNode, scale, pan, viewW, viewH, alongPath, play } = args;
+  const { links, visible, edgeFilter, selected, hoverEdge, hoverNode, scale, viewW, viewH } = args;
   if (!viewW || !viewH) return [];
 
   const candidates = links
-    .filter(({ from, to, key }) => {
-      if (!visible.has(from.node.id) || !visible.has(to.node.id) || !edgeFilter.has(to.node.edge)) return false;
-      if (!play) return true;
-      const born = play.born.get(key);
-      if (born == null) return false;
-      return play.maxGen < born + play.keepGens;
-    })
+    .filter(
+      ({ from, to }) =>
+        visible.has(from.node.id) && visible.has(to.node.id) && edgeFilter.has(to.node.edge),
+    )
     .map(({ from, to, key }) => {
       const ann = edgeAnnotation(from.node, to.node);
       const r = radius(to.node);
-      const arriving = Boolean(play?.pulseIds.has(to.node.id));
-      const forced = selected === to.node.id || hoverEdge === key || hoverNode === to.node.id || arriving;
-      const y1 = from.y + radius(from.node) + 4;
-      const y2 = to.y - r - 6;
+      const forced = selected === to.node.id || hoverEdge === key || hoverNode === to.node.id;
       return {
         key,
         toId: to.node.id,
         kind: to.node.edge,
         label: `${kindTitle(to.node.edge)} · ${ann.label}`,
         detail: ann.detail,
-        x: (alongPath ? (from.x + to.x) / 2 : to.x) * scale,
-        y: (alongPath ? (y1 + y2) / 2 : to.y - r - 14) * scale,
+        x: to.x * scale,
+        y: (to.y - r - 14) * scale,
         mode: "full" as const,
-        hot: forced || Boolean(play),
-        blink: Boolean(play),
-        onEdge: Boolean(alongPath),
+        hot: forced,
         score:
-          (arriving ? 2_000_000 : 0) +
           (forced ? 1_000_000 : 0) +
-          (play ? playChipScore(from.node, to.node, arriving) : 0) +
           influence(to.node) +
           (to.node.generation === 1 ? 800 : 0) -
           to.node.generation * 18,
@@ -697,15 +589,10 @@ function placeChips(args: {
     })
     .sort((a, b) => b.score - a.score);
 
-  const ranked = play ? candidates.slice(0, PLAY_CHIP_MAX) : alongPath ? candidates.slice(0, 8) : candidates;
   const boxes: { x: number; y: number }[] = [];
   const out: Chip[] = [];
 
-  for (const c of ranked) {
-    if (alongPath) {
-      out.push({ ...c, mode: "full" });
-      continue;
-    }
+  for (const c of candidates) {
     const overlaps = boxes.length >= 12 || boxes.some((b) => Math.abs(b.x - c.x) < CHIP_W && Math.abs(b.y - c.y) < CHIP_H);
     if (overlaps && !c.hot) continue;
     const y = overlaps && c.hot ? c.y - CHIP_H : c.y;
@@ -714,23 +601,6 @@ function placeChips(args: {
   }
 
   return out;
-}
-
-/** Prefer a real subject/action change over a stack of reply chips. */
-function playChipScore(parent: TweetNode, child: TweetNode, arriving: boolean): number {
-  if (child.edge === "origin") return -1;
-  const ann = edgeAnnotation(parent, child);
-  const shifted =
-    ann.tags.includes("subject-shift") || ann.tags.includes("action-shift") || ann.tags.includes("translation");
-  if (child.edge === "reply" && !shifted) return -1;
-  const kind = child.edge === "mutation" ? 400 : child.edge === "quote" ? 160 : 20;
-  return (
-    (arriving ? 1000 : 0) +
-    kind +
-    (ann.tags.includes("subject-shift") ? 280 : 0) +
-    (ann.tags.includes("action-shift") ? 90 : 0) +
-    Math.min(800, influence(child))
-  );
 }
 
 function kindTitle(kind: EdgeKind): string {

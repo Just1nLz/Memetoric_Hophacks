@@ -28,7 +28,7 @@ const MARKS: Record<string, string> = {
   backrooms: "🚪",
   "skill-issue": "🎮",
   "down-bad": "🥺",
-  ohio: "🌽",
+  ohio: "🌀",
   "its-giving": "💅",
   "the-voices": "👻",
   "chronically-online": "💻",

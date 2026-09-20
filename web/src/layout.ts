@@ -74,27 +74,6 @@ function layoutPackedTree(root: TweetNode): Map<string, LaidOut> {
   return positions;
 }
 
-/** True when the forest is a single origin→leaf chain (one path, no siblings). */
-export function isUnaryTree(forest: TweetNode[]): boolean {
-  if (forest.length !== 1) return false;
-  const walk = (n: TweetNode): boolean => n.children.length <= 1 && n.children.every(walk);
-  return walk(forest[0]);
-}
-
-/** Stack a unary descent as a readable column, ignoring generation gaps. */
-export function layoutLineagePath(forest: TweetNode[]): Map<string, LaidOut> {
-  const positions = new Map<string, LaidOut>();
-  let node: TweetNode | undefined = forest[0];
-  let i = 0;
-  const x = 280;
-  while (node) {
-    positions.set(node.id, { x, y: TREE_TOP + i * TREE_DY, node });
-    node = node.children[0];
-    i += 1;
-  }
-  return positions;
-}
-
 /** Influence ≈ reach + interaction intensity (views diluted, quotes weighted highest). */
 export function influence(node: TweetNode): number {
   return (

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { compact, when } from "../format";
 import { highlightMeme } from "../highlight";
 import { bandLabel, reportFor } from "../influence";
@@ -8,7 +8,14 @@ import { satInfluenceLine, saturationForPost } from "../saturation";
 import type { DayPoint, TweetNode } from "../types";
 import { SaturationGauge } from "./SaturationGauge";
 
-type Tab = "overview" | "evidence" | "analytics";
+type Tab = "overview" | "evidence" | "scores" | "detail";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "evidence", label: "Evidence" },
+  { id: "scores", label: "Scores" },
+  { id: "detail", label: "Detail" },
+];
 
 type Props = {
   open: boolean;
@@ -18,12 +25,9 @@ type Props = {
   family: TweetNode[];
   series: DayPoint[];
   focusOn: boolean;
-  pathMode?: boolean;
   onClose: () => void;
   onFocusBranch: () => void;
   onClearFocus: () => void;
-  onReadPath?: () => void;
-  onShowForest?: () => void;
   onAskGrok: () => void;
 };
 
@@ -35,15 +39,16 @@ export function NodeDetailsDrawer({
   family,
   series,
   focusOn,
-  pathMode = false,
   onClose,
   onFocusBranch,
   onClearFocus,
-  onReadPath,
-  onShowForest,
   onAskGrok,
 }: Props) {
   const [tab, setTab] = useState<Tab>("overview");
+
+  useEffect(() => {
+    setTab("overview");
+  }, [node?.id]);
 
   return (
     <aside className={`drawer ${open && node ? "open" : ""}`} aria-hidden={!open || !node}>
@@ -65,16 +70,16 @@ export function NodeDetailsDrawer({
           </p>
 
           <div className="drawer-tabs" role="tablist">
-            {(["overview", "evidence", "analytics"] as const).map((id) => (
+            {TABS.map((item) => (
               <button
-                key={id}
+                key={item.id}
                 type="button"
                 role="tab"
-                aria-selected={tab === id}
-                className={tab === id ? "on" : ""}
-                onClick={() => setTab(id)}
+                aria-selected={tab === item.id}
+                className={tab === item.id ? "on" : ""}
+                onClick={() => setTab(item.id)}
               >
-                {cap(id)}
+                {item.label}
               </button>
             ))}
           </div>
@@ -84,8 +89,11 @@ export function NodeDetailsDrawer({
               <Overview node={node} parent={parent} terms={terms} />
             )}
             {tab === "evidence" && <Evidence node={node} parent={parent} terms={terms} />}
-            {tab === "analytics" && (
-              <NodeAnalytics node={node} parent={parent} family={family} series={series} />
+            {tab === "scores" && (
+              <NodeScores node={node} family={family} series={series} />
+            )}
+            {tab === "detail" && (
+              <NodeDetail node={node} parent={parent} family={family} series={series} />
             )}
           </div>
 
@@ -94,19 +102,10 @@ export function NodeDetailsDrawer({
             <button type="button" className="tool-btn on" onClick={onClearFocus}>
               Return to full tree
             </button>
-          ) : pathMode ? (
-            <button type="button" className="tool-btn" onClick={() => onShowForest?.()}>
-              Full family
-            </button>
           ) : (
-            <>
-              <button type="button" className="tool-btn" onClick={onReadPath}>
-                Read this path
-              </button>
-              <button type="button" className="tool-btn" onClick={onFocusBranch}>
-                Focus branch
-              </button>
-            </>
+            <button type="button" className="tool-btn" onClick={onFocusBranch}>
+              Focus branch
+            </button>
           )}
             <button type="button" className="tool-btn" onClick={onAskGrok}>
               Ask Grok
@@ -199,7 +198,41 @@ function Evidence({
   );
 }
 
-function NodeAnalytics({
+function NodeScores({
+  node,
+  family,
+  series,
+}: {
+  node: TweetNode;
+  family: TweetNode[];
+  series: DayPoint[];
+}) {
+  const report = reportFor(node, family.length ? family : [node]);
+  const sat = saturationForPost(series, node);
+  return (
+    <div className="drawer-section influence-panel">
+      {sat && (
+        <SaturationGauge point={sat} title="Saturation · when this post landed" showCopy={false} />
+      )}
+      <div className="influence-hero">
+        <p className="kicker tight">Influence index</p>
+        <p className="idx-value">
+          <strong>{report.index}</strong>
+          <span>
+            {bandLabel(report.band)} · rank {report.rank} of {report.of}
+          </span>
+        </p>
+        <IndexMeter report={report} />
+      </div>
+      <p className="muted small">
+        Saturation is whether the meme was still funny that day. Influence is how hard this post hit. Open Detail
+        for drivers and how the two scores are built.
+      </p>
+    </div>
+  );
+}
+
+function NodeDetail({
   node,
   parent,
   family,
@@ -213,6 +246,7 @@ function NodeAnalytics({
   const report = reportFor(node, family.length ? family : [node]);
   const ann = parent && node.edge !== "origin" ? edgeAnnotation(parent, node) : null;
   const sat = saturationForPost(series, node);
+  const relate = sat ? satInfluenceLine(sat.phase, report.index) : null;
   return (
     <div className="drawer-section influence-panel">
       <div className="mutation-explain">
@@ -231,23 +265,7 @@ function NodeAnalytics({
           </p>
         )}
       </div>
-      {sat && (
-        <SaturationGauge
-          point={sat}
-          title="Saturation · when this post landed"
-          footnote={satInfluenceLine(sat.phase, report.index)}
-        />
-      )}
-      <div className="influence-hero">
-        <p className="kicker tight">Influence index</p>
-        <p className="idx-value">
-          <strong>{report.index}</strong>
-          <span>
-            {bandLabel(report.band)} · rank {report.rank} of {report.of}
-          </span>
-        </p>
-        <IndexMeter report={report} />
-      </div>
+      {relate && <p className="why">{relate}</p>}
       <p className="why">{report.lead}</p>
       <div className="driver-list">
         <p className="kicker tight">What is carrying the score</p>
@@ -266,8 +284,9 @@ function NodeAnalytics({
         )}
       </div>
       <p className="muted small">
-        Shares are of the weighted score, not raw counts. Quotes 4× · reposts 2.8× · replies 2.2× · saves 1.6×
-        · likes 1× · views as ln(1+V). 100 is the hardest-hitting post in this family.
+        Influence shares are of the weighted score, not raw counts. Quotes 4× · reposts 2.8× · replies 2.2× ·
+        saves 1.6× · likes 1× · views as ln(1+V). 100 is the hardest-hitting post in this family. Saturation is
+        monthly phrase volume, 0–100, independent of this post’s punch.
       </p>
     </div>
   );

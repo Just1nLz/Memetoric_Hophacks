@@ -13,9 +13,6 @@ type Props = {
   onOrigin: () => void;
   onFit: () => void;
   onAnalytics: () => void;
-  onReadPath?: () => void;
-  onForest?: () => void;
-  onNextPath?: () => void;
 };
 
 type Row =
@@ -33,9 +30,6 @@ export function CommandPalette({
   onOrigin,
   onFit,
   onAnalytics,
-  onReadPath,
-  onForest,
-  onNextPath,
 }: Props) {
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
@@ -55,9 +49,6 @@ export function CommandPalette({
       [
         { kind: "action", id: "origin", label: "Jump to origin", hint: "Tree", run: onOrigin },
         { kind: "action", id: "fit", label: "Fit tree", hint: "Tree", run: onFit },
-        { kind: "action", id: "path", label: "Read one path", hint: "Tree", run: onReadPath ?? onOrigin },
-        { kind: "action", id: "next-path", label: "Next path", hint: "Tree", run: onNextPath ?? onOrigin },
-        { kind: "action", id: "forest", label: "Show full family", hint: "Tree", run: onForest ?? onFit },
         { kind: "action", id: "grok", label: "Ask Grok", hint: "AI", run: onAskGrok },
         { kind: "action", id: "analytics", label: "Open analytics", hint: "Charts", run: onAnalytics },
       ] satisfies Row[]
@@ -93,7 +84,7 @@ export function CommandPalette({
     }
 
     return [...actions, ...memes, ...nodes];
-  }, [catalog, q, onAskGrok, onOrigin, onFit, onAnalytics, onReadPath, onForest, onNextPath, onFindMeme, onFindNode]);
+  }, [catalog, q, onAskGrok, onOrigin, onFit, onAnalytics, onFindMeme, onFindNode]);
 
   useEffect(() => {
     setActive(0);
