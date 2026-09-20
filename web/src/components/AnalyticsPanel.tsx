@@ -38,6 +38,17 @@ export function AnalyticsPanel({
           ×
         </button>
       </header>
+      <div className="mutation-primer">
+        <p className="kicker">How mutations work</p>
+        <p>
+          A mutation is a later post that keeps the meme and changes who it is about or what they are doing.
+          Blue replies and orange quotes are real thread links. Gold dashed edges are inferred: similar posts
+          grafted onto an earlier variant because they reuse the idea, not because someone hit reply.
+          Read a gold chip as parent subject → descendant subject (or parent action → descendant action).
+          A post about an aura farmer that lands on a JO1 member is “Aura Farmer → JO1,” not a guessed genre
+          like “anime.”
+        </p>
+      </div>
       <Volume
         series={series}
         peakDay={peakDay}

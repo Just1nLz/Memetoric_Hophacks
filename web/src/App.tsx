@@ -60,9 +60,9 @@ export default function App() {
     fetch("/catalog.json")
       .then((r) => {
         if (!r.ok) throw new Error("catalog missing");
-        return r.json();
+        return r.json() as Promise<Catalog>;
       })
-      .then((data: Catalog) => {
+      .then((data) => {
         const normalized = normalizeCatalog(data);
         setCatalog(normalized);
         setSlug(normalized.memes[0]?.slug ?? null);
@@ -566,11 +566,17 @@ export default function App() {
   );
 }
 
+function nodeCount(m: Meme): number {
+  return m.stats?.nodes ?? flatten(m.forest).length;
+}
+
 function normalizeCatalog(data: Catalog): Catalog {
   const start = data.window.start;
   return {
     ...data,
-    memes: data.memes.map((m) => normalizeMeme(m, start)),
+    memes: data.memes
+      .map((m) => normalizeMeme(m, start))
+      .sort((a, b) => nodeCount(b) - nodeCount(a) || a.name.localeCompare(b.name)),
   };
 }
 

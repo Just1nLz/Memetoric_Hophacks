@@ -116,16 +116,55 @@ function splitHits(text: string, terms: string[]): { text: string; hit: boolean 
   return out.length ? out : [{ text, hit: false }];
 }
 
+const URL_RE = /(https?:\/\/[^\s]+|t\.co\/[A-Za-z0-9]+)/gi;
+
+function prettyUrl(href: string): string {
+  try {
+    const u = new URL(href);
+    const host = u.hostname.replace(/^www\./, "");
+    const path = u.pathname === "/" ? "" : u.pathname.slice(0, 22);
+    return `${host}${path}`;
+  } catch {
+    return href.slice(0, 32);
+  }
+}
+
 export function highlightMeme(text: string, terms: string[]): ReactNode {
-  return splitHits(text, terms).map((p, i) =>
-    p.hit ? (
-      <strong key={i} className="meme-hit">
-        {p.text}
-      </strong>
-    ) : (
-      p.text
-    ),
-  );
+  const chunks = (text || "").split(URL_RE);
+  const out: ReactNode[] = [];
+  chunks.forEach((chunk, i) => {
+    if (/^https?:\/\//i.test(chunk) || /^t\.co\//i.test(chunk)) {
+      const raw = chunk.replace(/[),.;!?]+$/, "");
+      const href = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+      const trail = chunk.slice(raw.length);
+      out.push(
+        <a
+          key={`u-${i}`}
+          className="tweet-link"
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {prettyUrl(href)}
+        </a>,
+      );
+      if (trail) out.push(trail);
+      return;
+    }
+    splitHits(chunk, terms).forEach((p, j) => {
+      out.push(
+        p.hit ? (
+          <strong key={`h-${i}-${j}`} className="meme-hit">
+            {p.text}
+          </strong>
+        ) : (
+          <span key={`t-${i}-${j}`}>{p.text}</span>
+        ),
+      );
+    });
+  });
+  return out.length ? out : text;
 }
 
 export function highlightMemeTspans(text: string, terms: string[]): ReactNode {

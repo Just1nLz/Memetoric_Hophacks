@@ -1393,6 +1393,68 @@ tspan.meme-hit {
   font-size: 0.92rem;
 }
 
+.tweet-link {
+  color: var(--lime);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+.tweet-link:hover {
+  color: #eaff8a;
+}
+
+.tweet-body a,
+.overview-links a {
+  pointer-events: auto;
+  position: relative;
+  z-index: 1;
+}
+
+.overview-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin: -2px 0 12px;
+}
+
+.overview-links .tweet-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 8px;
+  border: 1px solid rgba(214, 255, 75, 0.35);
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 0.78rem;
+}
+
+.overview-links .tweet-link:hover {
+  border-color: var(--lime);
+  background: rgba(214, 255, 75, 0.08);
+}
+
+.mutation-primer,
+.mutation-explain {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(214, 255, 75, 0.04);
+}
+
+.mutation-primer p,
+.mutation-explain p {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.mutation-primer .kicker,
+.mutation-explain .kicker {
+  margin-bottom: 2px;
+}
+
 .ghost-link {
   color: var(--lime);
   background: transparent;

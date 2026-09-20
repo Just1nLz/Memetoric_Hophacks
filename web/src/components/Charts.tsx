@@ -56,8 +56,9 @@ export function Volume({ series, peakDay, activeDay, mutations, onSelectDay }: V
       </div>
       {open && (
         <p className="volume-help">
-          Full-month firehose volume. Color is lifecycle. The ticks under each bar are lineage events that
-          day — replies, quotes, grafted mutations.
+          Full-month firehose volume. Color is lifecycle. Ticks under each bar are lineage events that day:
+          a reply or quote is a real thread hop; a mutation is a later take that recasts the same bit onto a
+          new subject or action.
         </p>
       )}
       <div className="volume" role="img" aria-label="Daily usage bars">

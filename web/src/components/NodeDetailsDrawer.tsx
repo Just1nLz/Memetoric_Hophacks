@@ -76,7 +76,7 @@ export function NodeDetailsDrawer({
             )}
             {tab === "evidence" && <Evidence node={node} parent={parent} terms={terms} />}
             {tab === "analytics" && (
-              <NodeAnalytics node={node} series={series} peakDay={peakDay} />
+              <NodeAnalytics node={node} parent={parent} series={series} peakDay={peakDay} />
             )}
           </div>
 
@@ -124,6 +124,16 @@ function Overview({
     <div className="drawer-section">
       <p className="why">{why}</p>
       <p className="tweet-body">{highlightMeme(node.body, terms)}</p>
+      <div className="overview-links">
+        <a className="tweet-link" href={postUrl(node)} target="_blank" rel="noreferrer">
+          Open this post on X ↗
+        </a>
+        {parent && (
+          <a className="tweet-link" href={postUrl(parent)} target="_blank" rel="noreferrer">
+            Open parent on X ↗
+          </a>
+        )}
+      </div>
       <div className="metric-grid compact">
         {metrics.map(([k, v]) => (
           <div key={k} className="metric">
@@ -173,16 +183,35 @@ function Evidence({
 
 function NodeAnalytics({
   node,
+  parent,
   series,
   peakDay,
 }: {
   node: TweetNode;
+  parent: TweetNode | null;
   series: DayPoint[];
   peakDay: string | null;
 }) {
   const sat = saturationForPost(series, node);
+  const ann = parent && node.edge !== "origin" ? edgeAnnotation(parent, node) : null;
   return (
     <div className="drawer-section">
+      <div className="mutation-explain">
+        <p className="kicker tight">What this mutation is</p>
+        {ann ? (
+          <>
+            <p>
+              <strong>{ann.label}</strong> — {ann.detail}
+            </p>
+            <p className="muted small">{ann.kept}</p>
+          </>
+        ) : (
+          <p>
+            This is the seed post. Gold dashed children are inferred mutations: later posts that keep the
+            meme but change the subject or the action, without a reply or quote link.
+          </p>
+        )}
+      </div>
       {sat && (
         <div className={`sat-banner phase-${sat.phase ?? "unknown"}`}>
           <p className="kicker tight sat-banner-k">Saturation · {phaseLabel(sat.phase)}</p>
@@ -226,7 +255,7 @@ function whyDescendant(node: TweetNode, parent: TweetNode | null): string {
     return "This is the sampled origin for this language tree — later posts mutate from here.";
   }
   const ann = edgeAnnotation(parent, node);
-  return `Why this became a descendant: ${ann.detail}`;
+  return ann.detail;
 }
 
 function cap(s: string) {

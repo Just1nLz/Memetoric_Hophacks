@@ -39,12 +39,22 @@ export type TweetNode = {
   children: TweetNode[];
 };
 
+export type MemeCover = {
+  src: string;
+  body?: string;
+  likes?: number;
+  views?: number;
+  kind?: string;
+  id?: string;
+};
+
 export type Meme = {
   slug: string;
   name: string;
   query: string;
   blurb: string;
   first_seen: string | null;
+  cover?: MemeCover;
   stats: {
     nodes: number;
     roots: number;
