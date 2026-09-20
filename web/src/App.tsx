@@ -57,7 +57,7 @@ export default function App() {
   const pendingSelect = useRef<string | null>(null);
 
   useEffect(() => {
-    fetch("/catalog.json")
+    fetch(`${import.meta.env.BASE_URL}catalog.json`)
       .then((r) => {
         if (!r.ok) throw new Error("catalog missing");
         return r.json() as Promise<Catalog>;
