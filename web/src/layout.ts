@@ -16,29 +16,60 @@ export function flatten(forest: TweetNode[]): TweetNode[] {
   return out;
 }
 
+export const TREE_DX = 124;
+export const TREE_DY = 132;
+export const TREE_TOP = 72;
+
+/** Pack each generation into a tight row so siblings stay visible together. */
 export function layoutForest(forest: TweetNode[]): Map<string, LaidOut> {
   const positions = new Map<string, LaidOut>();
-  const dx = 132;
-  const dy = 148;
-  let x = 88;
-
-  const layout = (node: TweetNode, depth: number): number => {
-    if (node.children.length === 0) {
-      const xx = x;
-      x += dx;
-      positions.set(node.id, { x: xx, y: 64 + depth * dy, node });
-      return xx;
-    }
-    const xs = node.children.map((c) => layout(c, depth + 1));
-    const xx = (Math.min(...xs) + Math.max(...xs)) / 2;
-    positions.set(node.id, { x: xx, y: 64 + depth * dy, node });
-    return xx;
-  };
+  let cursor = 0;
 
   forest.forEach((root, i) => {
-    if (i > 0) x += 56;
-    layout(root, 0);
+    const local = layoutPackedTree(root);
+    let minX = Infinity;
+    let maxX = -Infinity;
+    for (const p of local.values()) {
+      minX = Math.min(minX, p.x);
+      maxX = Math.max(maxX, p.x);
+    }
+    if (!Number.isFinite(minX)) return;
+    const shift = cursor - minX + (i === 0 ? 140 : 96);
+    for (const [id, p] of local) {
+      positions.set(id, { ...p, x: p.x + shift });
+    }
+    cursor = shift + maxX + 80;
   });
+
+  return positions;
+}
+
+function layoutPackedTree(root: TweetNode): Map<string, LaidOut> {
+  const byGen = new Map<number, TweetNode[]>();
+  const walk = (node: TweetNode) => {
+    const g = node.generation || 0;
+    const row = byGen.get(g) ?? [];
+    row.push(node);
+    byGen.set(g, row);
+    node.children.forEach(walk);
+  };
+  walk(root);
+
+  const maxN = Math.max(1, ...[...byGen.values()].map((row) => row.length));
+  const contentW = (maxN - 1) * TREE_DX;
+  const positions = new Map<string, LaidOut>();
+
+  for (const [g, row] of byGen) {
+    const rowW = Math.max(0, row.length - 1) * TREE_DX;
+    const x0 = (contentW - rowW) / 2;
+    row.forEach((node, i) => {
+      positions.set(node.id, {
+        x: x0 + i * TREE_DX,
+        y: TREE_TOP + g * TREE_DY,
+        node,
+      });
+    });
+  }
 
   return positions;
 }
@@ -156,7 +187,8 @@ export function pruneConsumerForest(forest: TweetNode[], keepHighlights = 10, ma
 }
 
 export function radius(node: TweetNode): number {
-  return Math.max(12, Math.min(36, 10 + Math.log10(1 + influence(node)) * 6.2));
+  const boost = node.edge === "origin" ? 6 : 0;
+  return Math.max(16, Math.min(40, 14 + Math.log10(1 + influence(node)) * 7.2 + boost));
 }
 
 function cloneNode(node: TweetNode): TweetNode {

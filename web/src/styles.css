@@ -931,9 +931,9 @@ code {
 
 .canvas-shell {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
-  margin: 0 12px;
+  margin: 0;
 }
 
 .zoom-bar {
@@ -1023,13 +1023,22 @@ code {
 
 .link {
   fill: none;
-  stroke-width: 2.2;
-  opacity: 0.9;
+  stroke-width: 3.2;
+  opacity: 0.95;
   pointer-events: none;
 }
 
+.link.reply {
+  stroke-width: 3.8;
+}
+
+.link.quote {
+  stroke-width: 3.5;
+}
+
 .link.mutation {
-  stroke-dasharray: 5 5;
+  stroke-width: 2.8;
+  stroke-dasharray: 10 7;
 }
 
 .edge-hit {
@@ -1156,13 +1165,22 @@ code {
 
 .node .dot {
   fill: var(--bg);
-  stroke-width: 2.2;
+  stroke-width: 2.8;
 }
 
 .node .dot.origin { stroke: var(--lime); fill: var(--lime); }
-.node .dot.reply { stroke: var(--reply); }
-.node .dot.quote { stroke: var(--quote); }
-.node .dot.mutation { stroke: var(--mutation); }
+.node .dot.reply {
+  stroke: var(--reply);
+  fill: color-mix(in srgb, var(--reply) 42%, var(--bg));
+}
+.node .dot.quote {
+  stroke: var(--quote);
+  fill: color-mix(in srgb, var(--quote) 42%, var(--bg));
+}
+.node .dot.mutation {
+  stroke: var(--mutation);
+  fill: color-mix(in srgb, var(--mutation) 34%, var(--bg));
+}
 
 .node .halo {
   fill: transparent;
@@ -1231,9 +1249,28 @@ tspan.meme-hit {
 
 .origin-mark {
   fill: var(--lime);
+  font-size: 11px;
+  font-family: "IBM Plex Mono", monospace;
+  letter-spacing: 0.14em;
+}
+
+.rel-mark {
   font-size: 10px;
   font-family: "IBM Plex Mono", monospace;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rel-mark.reply { fill: var(--reply); }
+.rel-mark.quote { fill: var(--quote); }
+.rel-mark.mutation { fill: var(--mutation); }
+
+.gen-band {
+  fill: var(--muted);
+  font-size: 10px;
+  font-family: "IBM Plex Mono", monospace;
+  letter-spacing: 0.16em;
+  opacity: 0.55;
 }
 
 .genmark {
@@ -1244,8 +1281,8 @@ tspan.meme-hit {
 
 .hint {
   position: absolute;
-  left: 10px;
-  bottom: 8px;
+  left: 16px;
+  bottom: 132px;
   display: inline-block;
   margin: 0;
   color: var(--muted);

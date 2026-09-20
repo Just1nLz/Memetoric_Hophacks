@@ -1,13 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Inspector } from "./components/Inspector";
-import { KeywordSearch, type SearchHit } from "./components/KeywordSearch";
-import { Timeline } from "./components/Timeline";
-import { TreeCanvas } from "./components/TreeCanvas";
-import { Volume } from "./components/Charts";
-import { clampToWindow, compact, dayLabel, ts, utcDay, when } from "./format";
+import { AnalyticsPanel } from "./components/AnalyticsPanel";
+import { AppShell } from "./components/AppShell";
+import { CommandPalette } from "./components/CommandPalette";
+import { GrokAssistant, GrokFab } from "./components/GrokAssistant";
+import { LineageToolbar } from "./components/LineageToolbar";
+import { MemeHeader } from "./components/MemeHeader";
+import { MemeSidebar } from "./components/MemeSidebar";
+import { NodeContextMenu } from "./components/NodeContextMenu";
+import { NodeDetailsDrawer } from "./components/NodeDetailsDrawer";
+import { TimelinePlayer } from "./components/TimelinePlayer";
+import { TreeCanvas, type LineageCanvasHandle } from "./components/TreeCanvas";
+import { clampToWindow, ts, utcDay } from "./format";
 import { memeTerms } from "./highlight";
-import { flatten, languageKey, pruneConsumerForest, treesByLanguage } from "./layout";
-import { lifecycleSummary, mutationsByDay, phaseLabel, phaseOf } from "./saturation";
+import { flatten, languageKey, postUrl, pruneConsumerForest, treesByLanguage } from "./layout";
+import {
+  DEFAULT_FILTERS,
+  appearHour,
+  hourFloor,
+  lineageBundle,
+  nodePassesFilters,
+  pruneToIds,
+  relatedIds,
+  type LineageFilters,
+} from "./lineage";
+import { mutationsByDay } from "./saturation";
 import type { Catalog, EdgeKind, Meme, TweetNode } from "./types";
 
 export default function App() {
@@ -15,12 +31,29 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [slug, setSlug] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
   const [playing, setPlaying] = useState(false);
   const [step, setStep] = useState(0);
-  const [edges, setEdges] = useState<Set<EdgeKind>>(new Set(["reply", "quote"]));
+  const [speed, setSpeed] = useState(1);
+  const [edges, setEdges] = useState<Set<EdgeKind>>(new Set(["reply", "quote", "mutation"]));
   const [langKey, setLangKey] = useState<string | null>(null);
   const [treeMode, setTreeMode] = useState<"consumer" | "researcher">("researcher");
+  const [filters, setFilters] = useState<LineageFilters>(DEFAULT_FILTERS);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [grokOpen, setGrokOpen] = useState(false);
+  const [grokMode, setGrokMode] = useState<"ask" | "create">("ask");
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [focusBranch, setFocusBranch] = useState(false);
+  const [inspected, setInspected] = useState(false);
+  const [scalePct, setScalePct] = useState(100);
+  const [ctx, setCtx] = useState<{ id: string; x: number; y: number } | null>(null);
+  const canvasRef = useRef<LineageCanvasHandle>(null);
   const pendingSelect = useRef<string | null>(null);
 
   useEffect(() => {
@@ -37,26 +70,6 @@ export default function App() {
       .catch((e: Error) => setError(e.message));
   }, []);
 
-  const genBySlug = useMemo(() => {
-    const out = new Map<string, number>();
-    if (!catalog) return out;
-    for (const m of catalog.memes) {
-      const trees = treesByLanguage(
-        m.forest,
-        catalog.window.start,
-        memeTerms(m.name, m.query),
-        m.name,
-        m.query,
-      );
-      let max = m.stats.max_generation || 0;
-      for (const t of trees) {
-        for (const n of flatten(t.forest)) max = Math.max(max, n.generation || 0);
-      }
-      out.set(m.slug, max);
-    }
-    return out;
-  }, [catalog]);
-
   const meme = catalog?.memes.find((m) => m.slug === slug) ?? catalog?.memes[0] ?? null;
   const terms = useMemo(() => (meme ? memeTerms(meme.name, meme.query) : []), [meme]);
   const langTrees = useMemo(
@@ -69,39 +82,54 @@ export default function App() {
   const activeTree = langTrees.find((t) => t.key === langKey) ?? langTrees[0] ?? null;
   const displayForest = useMemo(() => {
     if (!activeTree) return [];
-    return treeMode === "consumer" ? pruneConsumerForest(activeTree.forest) : activeTree.forest;
-  }, [activeTree, treeMode]);
+    const base = treeMode === "consumer" ? pruneConsumerForest(activeTree.forest) : activeTree.forest;
+    if (!focusBranch || !selected) return base;
+    return pruneToIds(base, lineageBundle(base, selected));
+  }, [activeTree, treeMode, focusBranch, selected]);
   const lineageNodes = useMemo(() => (activeTree ? flatten(activeTree.forest) : []), [activeTree]);
   const mutByDay = useMemo(() => mutationsByDay(lineageNodes), [lineageNodes]);
-  const life = useMemo(() => (meme ? lifecycleSummary(meme.series) : null), [meme]);
   const nodes = useMemo(() => flatten(displayForest), [displayForest]);
   const origin = activeTree?.forest[0] ?? nodes.find((n) => n.edge === "origin") ?? null;
   const originHour = origin ? hourFloor(ts(origin.created_at)) : 0;
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const genCap = Math.max(0, ...nodes.map((n) => n.generation || 0), 1);
   const stamps = useMemo(() => {
-    const hours = nodes
-      .map((n) => appearHour(n, originHour))
-      .filter(Boolean);
+    const hours = nodes.map((n) => appearHour(n, originHour)).filter(Boolean);
     return [...new Set(hours)].sort((a, b) => a - b);
   }, [nodes, originHour]);
 
   useEffect(() => {
     setPlaying(false);
+    setDrawerOpen(false);
+    setFocusBranch(false);
+    setInspected(false);
+    setSearchOpen(false);
+    setSearchQuery("");
+    setFilters(DEFAULT_FILTERS);
+    setGrokOpen(false);
+    setAnalyticsOpen(false);
+    setFiltersOpen(false);
+    setMoreOpen(false);
     const want = pendingSelect.current;
-    if (want && nodes.some((n) => n.id === want)) {
-      setSelected(want);
-      const node = nodes.find((n) => n.id === want)!;
-      const hitHour = Math.floor(ts(node.created_at) / 3_600_000) * 3_600_000;
-      const idx = stamps.findIndex((t) => t >= hitHour);
-      setStep(idx >= 0 ? idx : Math.max(0, stamps.length - 1));
-      pendingSelect.current = null;
-    } else {
-      setSelected(activeTree?.forest[0]?.id ?? null);
-      setStep(Math.max(0, stamps.length - 1));
-    }
-    // Re-seed when the meme family or language page changes.
+    if (want) return;
+    setSelected(null);
+    setStep(Math.max(0, stamps.length - 1));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meme?.slug, langKey, stamps.length]);
+  }, [meme?.slug, langKey]);
+
+  useEffect(() => {
+    const want = pendingSelect.current;
+    if (!want || !nodes.some((n) => n.id === want)) return;
+    setSelected(want);
+    setDrawerOpen(true);
+    setInspected(true);
+    const node = nodes.find((n) => n.id === want)!;
+    const hitHour = Math.floor(ts(node.created_at) / 3_600_000) * 3_600_000;
+    const idx = stamps.findIndex((t) => t >= hitHour);
+    setStep(idx >= 0 ? idx : Math.max(0, stamps.length - 1));
+    pendingSelect.current = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meme?.slug, langKey, nodes]);
 
   useEffect(() => {
     if (!meme || !catalog) return;
@@ -136,9 +164,9 @@ export default function App() {
         }
         return s + 1;
       });
-    }, 650);
+    }, Math.max(180, Math.round(650 / speed)));
     return () => window.clearInterval(id);
-  }, [playing, stamps.length]);
+  }, [playing, stamps.length, speed]);
 
   const cutoff = stamps[step] ?? Number.POSITIVE_INFINITY;
   const visible = useMemo(() => {
@@ -146,20 +174,61 @@ export default function App() {
     if (origin) ids.add(origin.id);
     for (const n of nodes) {
       if (appearHour(n, originHour) > cutoff) continue;
+      if (!nodePassesFilters(n, filters, origin?.id)) continue;
       ids.add(n.id);
     }
     return ids;
-  }, [nodes, cutoff, origin, originHour]);
+  }, [nodes, cutoff, origin, originHour, filters]);
 
   useEffect(() => {
-    if (step !== 0 || !origin) return;
-    setSelected(origin.id);
-  }, [step, origin?.id]);
+    if (!selected) return;
+    if (!nodes.some((n) => n.id === selected)) {
+      setSelected(null);
+      setDrawerOpen(false);
+      setFocusBranch(false);
+    }
+  }, [treeMode, nodes, selected]);
 
-  const selectedNode: TweetNode | null =
-    nodes.find((n) => n.id === selected) ?? nodes.find((n) => n.edge === "origin") ?? nodes[0] ?? null;
+  const selectedNode: TweetNode | null = selected ? (byId.get(selected) ?? null) : null;
   const parentNode =
     selectedNode?.parent_id != null ? (byId.get(selectedNode.parent_id) ?? null) : null;
+  const related = selectedNode ? relatedIds(selectedNode) : null;
+
+  const searchHits = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return nodes
+      .filter(
+        (n) =>
+          n.body.toLowerCase().includes(q) ||
+          (n.edge_label ?? "").toLowerCase().includes(q) ||
+          n.edge.includes(q),
+      )
+      .slice(0, 16);
+  }, [nodes, searchQuery]);
+  const searchHitIds = useMemo(() => new Set(searchHits.map((n) => n.id)), [searchHits]);
+
+  const inspect = (id: string) => {
+    setSelected(id);
+    setDrawerOpen(true);
+    setInspected(true);
+    setCtx(null);
+  };
+
+  const pickNode = (node: TweetNode, memeSlug?: string) => {
+    setPlaying(false);
+    pendingSelect.current = node.id;
+    if (memeSlug && memeSlug !== slug) {
+      setSlug(memeSlug);
+      return;
+    }
+    inspect(node.id);
+    const hitHour = Math.floor(ts(node.created_at) / 3_600_000) * 3_600_000;
+    const idx = stamps.findIndex((t) => t >= hitHour);
+    if (idx >= 0) setStep(idx);
+    canvasRef.current?.focusNode(node.id);
+    setSearchOpen(false);
+  };
 
   const toggleEdge = (k: EdgeKind) => {
     setEdges((prev) => {
@@ -170,26 +239,63 @@ export default function App() {
     });
   };
 
-  useEffect(() => {
-    if (!selected) return;
-    if (!nodes.some((n) => n.id === selected)) setSelected(origin?.id ?? null);
-  }, [treeMode, nodes, selected, origin?.id]);
-
-  const onPickHit = (hit: SearchHit) => {
+  const jumpOrigin = () => {
     setPlaying(false);
-    setTreeMode("researcher");
-    pendingSelect.current = hit.node.id;
-    const key = languageKey(hit.node.lang);
-    if (langTrees.some((t) => t.key === key)) setLangKey(key);
-    if (hit.memeSlug === slug) {
-      setSelected(hit.node.id);
-      const hitHour = Math.floor(ts(hit.node.created_at) / 3_600_000) * 3_600_000;
-      const idx = stamps.findIndex((t) => t >= hitHour);
-      if (idx >= 0) setStep(idx);
-      return;
-    }
-    setSlug(hit.memeSlug);
+    setSelected(origin?.id ?? null);
+    canvasRef.current?.origin();
   };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (meta && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCommandOpen(true);
+        return;
+      }
+      if (e.key !== "Escape") return;
+      if (commandOpen) {
+        setCommandOpen(false);
+        return;
+      }
+      if (ctx) {
+        setCtx(null);
+        return;
+      }
+      if (grokOpen) {
+        setGrokOpen(false);
+        return;
+      }
+      if (analyticsOpen) {
+        setAnalyticsOpen(false);
+        return;
+      }
+      if (filtersOpen || moreOpen) {
+        setFiltersOpen(false);
+        setMoreOpen(false);
+        return;
+      }
+      if (searchOpen) {
+        setSearchOpen(false);
+        return;
+      }
+      if (drawerOpen) {
+        setDrawerOpen(false);
+        return;
+      }
+      if (selected) {
+        setSelected(null);
+        setFocusBranch(false);
+        return;
+      }
+      if (navOpen) setNavOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [commandOpen, ctx, grokOpen, analyticsOpen, filtersOpen, moreOpen, searchOpen, drawerOpen, selected, navOpen]);
+
+  const genNow = Math.max(0, ...nodes.filter((n) => visible.has(n.id)).map((n) => n.generation || 0));
+  const genMax = Math.max(0, ...nodes.map((n) => n.generation || 0));
 
   if (error) {
     return (
@@ -212,199 +318,254 @@ export default function App() {
   }
 
   return (
-    <div className="app">
-      <header className="top">
-        <div className="brand">
-          <span className="mark">M</span>
-          <div>
-            <strong>Memetoric</strong>
-            <p>Lineage observatory · X firehose</p>
-          </div>
-        </div>
-        <p className="corpus">
-          {compact(catalog.corpus_rows)} rows · {compact(catalog.distinct_tweets)} tweets ·{" "}
-          {catalog.window.start} → {catalog.window.end}
-        </p>
-      </header>
-
-      <aside className="rail">
-        <p className="kicker">Tracked memes</p>
-        <p className="muted small">
-          We don’t scrape the whole platform into one graph. Each card is a family we chose to follow.
-        </p>
-        <ul className="meme-list">
-          {catalog.memes.map((m) => (
-            <li key={m.slug}>
-              <button className={m.slug === meme.slug ? "on" : ""} onClick={() => setSlug(m.slug)}>
-                <span className="name">{m.name}</span>
-                <span className="q">{m.query}</span>
-                <span className="nums">
-                  {m.stats.nodes} tweets · {genBySlug.get(m.slug) ?? m.stats.max_generation} gens · {compact(m.stats.likes)} likes
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        <div className="legend">
-          <p className="kicker">Edge types</p>
-          <label>
-            <input type="checkbox" checked={edges.has("reply")} onChange={() => toggleEdge("reply")} />
-            <i className="swatch reply" /> reply
-          </label>
-          <label>
-            <input type="checkbox" checked={edges.has("quote")} onChange={() => toggleEdge("quote")} />
-            <i className="swatch quote" /> quote
-          </label>
-        </div>
-      </aside>
-
-      <main className="stage">
-        <div className="stage-head">
-          <div>
-            <p className="kicker">Ancestor tree</p>
-            <h1>{meme.name}</h1>
-            <p className="blurb">{meme.blurb}</p>
-            <div className="tree-mode" role="group" aria-label="Tree mode">
-              <button
-                type="button"
-                className={treeMode === "consumer" ? "on" : ""}
-                onClick={() => setTreeMode("consumer")}
-              >
-                Consumer
-              </button>
-              <button
-                type="button"
-                className={treeMode === "researcher" ? "on" : ""}
-                onClick={() => setTreeMode("researcher")}
-              >
-                Researcher
-              </button>
-            </div>
-            <p className="muted small origin-note">
-              {treeMode === "consumer"
-                ? "Month spine: one lineage through time plus a few high-reach branches."
-                : "Full lineage: every reply, quote, and mutation in this language, stacked by generation."}
-            </p>
-          </div>
-          <dl className="stats">
-            <Stat k="this tree" v={String(nodes.length)} />
-            <Stat
-              k="gens"
-              v={String(Math.max(0, ...nodes.map((n) => n.generation || 0)))}
-            />
-            <Stat k="peak" v={life?.peakDay ? dayLabel(life.peakDay) : "—"} />
-            <Stat k="now" v={life ? phaseLabel(life.lastPhase) : "—"} />
-            <Stat
-              k="spent"
-              v={life?.lastSat != null ? `${Math.round(life.lastSat * 100)}%` : "—"}
-            />
-          </dl>
-        </div>
-        <div className="tree-switch" role="tablist" aria-label="Language trees">
-          {langTrees.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              role="tab"
-              aria-selected={t.key === activeTree.key}
-              className={t.key === activeTree.key ? "on" : ""}
-              onClick={() => {
-                pendingSelect.current = null;
-                setLangKey(t.key);
+    <AppShell
+      sidebarCollapsed={sidebarCollapsed}
+      navOpen={navOpen}
+      drawerOpen={drawerOpen}
+      sidebar={
+        <MemeSidebar
+          memes={catalog.memes}
+          slug={meme.slug}
+          collapsed={sidebarCollapsed}
+          mobileOpen={navOpen}
+          onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
+          onCloseMobile={() => setNavOpen(false)}
+          onSelect={setSlug}
+        />
+      }
+      workspace={
+        <>
+          <MemeHeader
+            name={meme.name}
+            blurb={meme.blurb}
+            nodes={nodes.length}
+            generations={genMax}
+            language={activeTree.name}
+            firstSeen={meme.first_seen}
+            series={meme.series}
+            onOpenNav={() => setNavOpen(true)}
+            onOpenAnalytics={() => {
+              setGrokOpen(false);
+              setAnalyticsOpen(true);
+            }}
+          />
+          <LineageToolbar
+            scalePct={scalePct}
+            searchOpen={searchOpen}
+            searchQuery={searchQuery}
+            searchHits={searchHits}
+            filtersOpen={filtersOpen}
+            moreOpen={moreOpen}
+            filters={filters}
+            genCap={genCap}
+            edges={edges}
+            langTrees={langTrees}
+            langKey={activeTree.key}
+            treeMode={treeMode}
+            onOrigin={jumpOrigin}
+            onFit={() => canvasRef.current?.fit()}
+            onZoom={(d) => canvasRef.current?.zoomBy(d)}
+            onToggleSearch={() => {
+              setSearchOpen((o) => !o);
+              setFiltersOpen(false);
+              setMoreOpen(false);
+            }}
+            onSearchQuery={setSearchQuery}
+            onPickHit={(node) => pickNode(node)}
+            onToggleFilters={() => {
+              setFiltersOpen((o) => !o);
+              setMoreOpen(false);
+              setSearchOpen(false);
+            }}
+            onToggleMore={() => {
+              setMoreOpen((o) => !o);
+              setFiltersOpen(false);
+            }}
+            onFilters={setFilters}
+            onToggleEdge={toggleEdge}
+            onLang={(key) => {
+              pendingSelect.current = null;
+              setLangKey(key);
+            }}
+            onTreeMode={setTreeMode}
+            onOpenAnalytics={() => {
+              setGrokOpen(false);
+              setAnalyticsOpen(true);
+              setMoreOpen(false);
+            }}
+            onAskGrok={() => {
+              setAnalyticsOpen(false);
+              setGrokOpen(true);
+              setGrokMode("ask");
+              setMoreOpen(false);
+            }}
+          />
+          <div className="graph-stage">
+            <TreeCanvas
+              ref={canvasRef}
+              key={`${meme.slug}-${activeTree.key}-${treeMode}-${focusBranch ? selected : "full"}`}
+              forest={displayForest}
+              visible={visible}
+              selected={selected}
+              related={related}
+              searchHits={searchHitIds}
+              onSelect={inspect}
+              onFocusSubtree={(id) => {
+                inspect(id);
+                setFocusBranch(true);
+                canvasRef.current?.focusNode(id);
               }}
-            >
-              <span className="tree-lang">{t.name}</span>
-              <span className="tree-count">
-                {t.count} posts · {compact(t.likes)} likes
-              </span>
-            </button>
-          ))}
-        </div>
-        <Volume
+              onContextMenu={(id, x, y) => {
+                setSelected(id);
+                setCtx({ id, x, y });
+              }}
+              edgeFilter={new Set<EdgeKind>([...edges, "origin"])}
+              terms={terms}
+              pulse={step === 0 ? (origin?.id ?? null) : null}
+              series={meme.series}
+              onViewChange={setScalePct}
+              hint={inspected ? null : "Lime origin · blue reply · orange quote · gold dashed mutation. Scroll to zoom."}
+              focusBanner={focusBranch}
+              onClearFocus={() => setFocusBranch(false)}
+            />
+            <GrokFab
+              onClick={() => {
+                setAnalyticsOpen(false);
+                setGrokOpen(true);
+                setGrokMode("ask");
+              }}
+            />
+            <AnalyticsPanel
+              open={analyticsOpen}
+              series={meme.series}
+              peakDay={meme.saturation?.peak}
+              mutations={mutByDay}
+              activeDay={stamps[step] ? utcDay(new Date(stamps[step]).toISOString()) : null}
+              onSelectDay={(day) => {
+                const target = Date.parse(`${day}T12:00:00.000Z`);
+                if (!Number.isFinite(target) || stamps.length === 0) return;
+                let best = 0;
+                let bestDist = Number.POSITIVE_INFINITY;
+                stamps.forEach((t, i) => {
+                  const dist = Math.abs(t - target);
+                  if (dist < bestDist) {
+                    bestDist = dist;
+                    best = i;
+                  }
+                });
+                setPlaying(false);
+                setStep(best);
+              }}
+              onClose={() => setAnalyticsOpen(false)}
+            />
+            {grokOpen && (
+              <GrokAssistant
+                open
+                mode={grokMode}
+                memeName={meme.name}
+                memeBlurb={meme.blurb}
+                node={selectedNode}
+                parent={parentNode}
+                onClose={() => setGrokOpen(false)}
+                onMode={setGrokMode}
+              />
+            )}
+          </div>
+          <TimelinePlayer
+            stamps={stamps}
+            index={step}
+            playing={playing}
+            speed={speed}
+            generation={genNow}
+            generationMax={genMax}
+            onIndex={(i) => {
+              setPlaying(false);
+              setStep(i);
+            }}
+            onToggle={() => {
+              if (!playing && step >= stamps.length - 1) {
+                setStep(0);
+              }
+              setPlaying((p) => !p);
+            }}
+            onSpeed={setSpeed}
+          />
+        </>
+      }
+      drawer={
+        <NodeDetailsDrawer
+          open={drawerOpen}
+          node={selectedNode}
+          parent={parentNode}
+          terms={terms}
           series={meme.series}
           peakDay={meme.saturation?.peak}
-          mutations={mutByDay}
-          activeDay={stamps[step] ? utcDay(new Date(stamps[step]).toISOString()) : null}
-          onSelectDay={(day) => {
-            const target = Date.parse(`${day}T12:00:00.000Z`);
-            if (!Number.isFinite(target) || stamps.length === 0) return;
-            let best = 0;
-            let bestDist = Number.POSITIVE_INFINITY;
-            stamps.forEach((t, i) => {
-              const dist = Math.abs(t - target);
-              if (dist < bestDist) {
-                bestDist = dist;
-                best = i;
-              }
-            });
-            setPlaying(false);
-            setStep(best);
-          }}
-        />
-        <div className="toolbar">
-          <KeywordSearch catalog={catalog} query={query} onQuery={setQuery} onPick={onPickHit} />
-        </div>
-        <TreeCanvas
-          key={`${meme.slug}-${activeTree.key}-${treeMode}`}
-          forest={displayForest}
-          visible={visible}
-          selected={selected}
-          onSelect={setSelected}
-          edgeFilter={new Set<EdgeKind>([...edges, "mutation"])}
-          terms={terms}
-          pulse={step === 0 ? origin?.id ?? null : null}
-          series={meme.series}
-        />
-        <Timeline
-          stamps={stamps}
-          index={step}
-          playing={playing}
-          phase={stamps[step] ? phaseOf(meme.series, utcDay(new Date(stamps[step]).toISOString()))?.phase : undefined}
-          onIndex={setStep}
-          onToggle={() => {
-            if (!playing && step >= stamps.length - 1) {
-              setStep(0);
-              if (origin) setSelected(origin.id);
+          focusOn={focusBranch}
+          onClose={() => setDrawerOpen(false)}
+          onFocusBranch={() => {
+            if (selected) {
+              setFocusBranch(true);
+              canvasRef.current?.focusNode(selected);
             }
-            setPlaying((p) => !p);
+          }}
+          onClearFocus={() => setFocusBranch(false)}
+          onAskGrok={() => {
+            setAnalyticsOpen(false);
+            setGrokOpen(true);
+            setGrokMode("ask");
           }}
         />
-      </main>
-
-      <Inspector
-        node={selectedNode}
-        parent={parentNode}
-        memeName={meme.name}
-        terms={terms}
-        series={meme.series}
-        peakDay={meme.saturation?.peak}
-      />
-    </div>
+      }
+      overlays={
+        <>
+          <CommandPalette
+            open={commandOpen}
+            catalog={catalog}
+            onClose={() => setCommandOpen(false)}
+            onFindMeme={setSlug}
+            onFindNode={(s, node) => pickNode(node, s)}
+            onAskGrok={() => {
+              setAnalyticsOpen(false);
+              setGrokOpen(true);
+              setGrokMode("ask");
+            }}
+            onOrigin={jumpOrigin}
+            onFit={() => canvasRef.current?.fit()}
+            onAnalytics={() => {
+              setGrokOpen(false);
+              setAnalyticsOpen(true);
+            }}
+          />
+          {ctx && selectedNode && (
+            <NodeContextMenu
+              x={ctx.x}
+              y={ctx.y}
+              node={selectedNode}
+              onClose={() => setCtx(null)}
+              onFocus={() => {
+                inspect(ctx.id);
+                setFocusBranch(true);
+                canvasRef.current?.focusNode(ctx.id);
+                setCtx(null);
+              }}
+              onAsk={() => {
+                inspect(ctx.id);
+                setGrokOpen(true);
+                setGrokMode("ask");
+                setCtx(null);
+              }}
+              onOpen={() => {
+                window.open(postUrl(selectedNode), "_blank", "noreferrer");
+                setCtx(null);
+              }}
+            />
+          )}
+        </>
+      }
+    />
   );
 }
 
-function hourFloor(t: number): number {
-  if (!t) return 0;
-  return Math.floor(t / 3_600_000) * 3_600_000;
-}
-
-/** Lineage clock starts at the origin. Earlier folded-in seeds appear with it, not before it. */
-function appearHour(node: TweetNode, originHour: number): number {
-  const h = hourFloor(ts(node.created_at));
-  if (!h) return originHour;
-  return originHour && h < originHour ? originHour : h;
-}
-
-function Stat({ k, v }: { k: string; v: string }) {
-  return (
-    <div>
-      <dt>{k}</dt>
-      <dd>{v}</dd>
-    </div>
-  );
-}
-
-/** Align first-seen + daily series with the corpus UTC window (EDT evenings can look like the prior day). */
 function normalizeCatalog(data: Catalog): Catalog {
   const start = data.window.start;
   return {
